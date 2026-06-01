@@ -1,0 +1,67 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-06-01T22:22:07.353Z",
+  "activeFeatures": [
+    "eng-workbook",
+    "tts"
+  ],
+  "primaryFeature": "eng-workbook",
+  "features": {
+    "eng-workbook": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-06-01T22:21:25.562Z",
+        "lastUpdated": "2026-06-01T22:21:44.183Z"
+      },
+      "lastFile": "/Users/suslmk/workspace/eng-workbook/src/lib/speech.ts"
+    },
+    "tts": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-06-01T22:22:07.353Z",
+        "lastUpdated": "2026-06-01T22:22:07.353Z"
+      },
+      "lastFile": "/Users/suslmk/workspace/eng-workbook/src/app/api/tts/route.ts"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-05-30T09:36:26.430Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-06-01T22:22:07.353Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-06-01T22:21:25.562Z",
+      "feature": "eng-workbook",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-06-01T22:21:44.183Z",
+      "feature": "eng-workbook",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-06-01T22:22:07.353Z",
+      "feature": "tts",
+      "phase": "do",
+      "action": "updated"
+    }
+  ]
+}

@@ -28,8 +28,8 @@
 - **Next.js 14** (App Router)
 - **React 18** + **TypeScript**
 - **TailwindCSS** (스타일링)
-- **Supabase** (DB + API)
-- **Web Speech API** (TTS 발음)
+- **Supabase** (DB + API + Storage)
+- **OpenAI TTS** (고품질 발음, Storage 캐싱) + **Web Speech API** (폴백)
 - **Lucide React** (아이콘)
 - **Framer Motion** (애니메이션)
 
@@ -53,3 +53,17 @@ npm run dev
 cp .env.local.example .env.local
 # .env.local 파일에 Supabase URL과 ANON KEY 입력
 ```
+
+## 음성 발음 (TTS) 설정
+
+브라우저 내장 음성은 기기마다 품질이 달라, OpenAI TTS로 mp3를 생성해 Supabase
+Storage에 캐싱합니다. 한 번 생성된 단어는 CDN에서 바로 재생되어 추가 비용/지연이
+없으며, 키가 없으면 자동으로 브라우저 내장 음성으로 폴백합니다.
+
+1. `src/lib/supabase-tts-storage.sql`을 Supabase SQL Editor에서 실행 (public `tts` 버킷 생성)
+2. `.env.local`에 키 추가:
+   - `OPENAI_API_KEY` — https://platform.openai.com/api-keys
+   - `SUPABASE_SERVICE_ROLE_KEY` — Supabase 프로젝트 Settings > API > service_role
+     (서버 전용. **절대 `NEXT_PUBLIC_` 접두사 금지**)
+
+음성/모델은 `src/lib/tts-config.ts`의 `TTS_VOICE`, `TTS_MODEL`에서 변경할 수 있습니다.
