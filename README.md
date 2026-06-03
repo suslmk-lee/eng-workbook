@@ -74,3 +74,52 @@ cp .env.local.example .env.local
      (서버 전용. **절대 `NEXT_PUBLIC_` 접두사 금지**)
 
 음성/모델은 `src/lib/tts-config.ts`의 `TTS_VOICE`, `TTS_MODEL`에서 변경할 수 있습니다.
+
+## 배포 (Vercel)
+
+프로덕션: https://eng-workbook.vercel.app
+
+### 자동배포 (GitHub 연동, 권장)
+
+한 번 연동하면 `master`에 push할 때마다 자동으로 빌드·배포됩니다.
+
+1. [Vercel 대시보드](https://vercel.com/dashboard) → `eng-workbook` 프로젝트 → **Settings → Git**
+2. **Connect Git Repository** → GitHub → `suslmk-lee/eng-workbook` 선택
+3. **Production Branch**가 `master`인지 확인
+
+연동 후에는 배포 명령이 필요 없습니다:
+
+```bash
+git push origin master   # → Vercel이 자동으로 빌드·배포
+```
+
+### 수동 배포 (Vercel CLI)
+
+GitHub 연동 없이 로컬에서 직접 배포하는 방법입니다.
+
+```bash
+# 최초 1회: 로그인 + 프로젝트 연결
+npx vercel login          # 이메일 인증
+npx vercel link           # 기존 eng-workbook 프로젝트 선택
+
+# 배포
+npx vercel --prod         # 프로덕션 배포
+npx vercel                # 프리뷰 배포 (테스트용 URL 발급)
+```
+
+### 환경 변수
+
+배포 환경의 환경 변수는 `.env.local`과 별개로 Vercel 대시보드에서 설정해야 합니다:
+**Settings → Environment Variables**
+
+| 변수 | 필수 여부 |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | 필수 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 필수 |
+| `OPENAI_API_KEY` | 선택 (고품질 TTS) |
+| `SUPABASE_SERVICE_ROLE_KEY` | 선택 (TTS Storage 캐싱) |
+
+환경 변수를 변경하면 **재배포해야 적용**됩니다 (Deployments → 최신 배포 → Redeploy).
+현재 적용된 TTS 모드는 메인화면 헤더의 배지로 확인할 수 있습니다.
+
+> 참고: 저장소의 `netlify.toml`은 과거 Netlify 배포 시도의 잔재로, 현재 Vercel 배포에는 사용되지 않습니다.
