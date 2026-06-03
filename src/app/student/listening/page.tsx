@@ -9,6 +9,7 @@ import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish, initVoices } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { useKeyboardOpen } from "@/lib/use-keyboard-open";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
@@ -28,11 +29,19 @@ function ListeningContent() {
   const [combo, setCombo] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
     initVoices();
     loadWords();
   }, [setId]);
+
+  // 키보드가 열리면 재생 버튼+입력란이 키보드 위에 보이도록 맨 위로 스크롤
+  useEffect(() => {
+    if (!keyboardOpen) return;
+    const tid = setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 250);
+    return () => clearTimeout(tid);
+  }, [keyboardOpen]);
 
   useEffect(() => {
     if (!submitted && inputRef.current) {
@@ -159,7 +168,7 @@ function ListeningContent() {
   const progress = ((currentIndex + 1) / words.length) * 100;
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <div className={cn("min-h-screen", keyboardOpen ? "p-2" : "p-4 md:p-8")}>
       <AnswerFeedback
         show={feedback.show}
         isCorrect={feedback.isCorrect}
@@ -167,39 +176,39 @@ function ListeningContent() {
         word={feedback.isCorrect ? currentWord.english : undefined}
       />
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className={cn("flex items-center justify-between", keyboardOpen ? "mb-2" : "mb-6")}>
           <div className="flex items-center gap-3">
             <Link href="/student" className="p-2 hover:bg-white rounded-xl transition-colors">
               <ArrowLeft className="w-6 h-6 text-gray-600" />
             </Link>
-            <h1 className="text-2xl font-bold text-gray-800">듣고 쓰기</h1>
+            <h1 className={cn("font-bold text-gray-800", keyboardOpen ? "text-lg" : "text-2xl")}>듣고 쓰기</h1>
           </div>
           <div className="text-sm text-gray-500">{currentIndex + 1} / {words.length}</div>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-2 mb-8">
+        <div className={cn("w-full bg-gray-200 rounded-full h-2", keyboardOpen ? "mb-3" : "mb-8")}>
           <div className="bg-gradient-to-r from-yellow-400 to-yellow-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
 
         {/* Listen Button */}
-        <div className="bg-white rounded-3xl p-8 shadow-md mb-6 text-center">
-          <p className="text-sm text-gray-400 mb-4">발음을 듣고 영어 단어를 써보세요</p>
+        <div className={cn("bg-white shadow-md text-center", keyboardOpen ? "rounded-2xl p-3 mb-3" : "rounded-3xl p-8 mb-6")}>
+          {!keyboardOpen && <p className="text-sm text-gray-400 mb-4">발음을 듣고 영어 단어를 써보세요</p>}
           <div className="flex gap-4 justify-center">
             <button
               onClick={() => handlePlay(0.8)}
-              className="p-6 bg-yellow-100 rounded-full hover:bg-yellow-200 transition-all hover:scale-105"
+              className={cn("bg-yellow-100 rounded-full hover:bg-yellow-200 transition-all hover:scale-105", keyboardOpen ? "p-3" : "p-6")}
             >
-              <Volume2 className="w-10 h-10 text-yellow-600" />
+              <Volume2 className={cn("text-yellow-600", keyboardOpen ? "w-7 h-7" : "w-10 h-10")} />
             </button>
             <button
               onClick={() => handlePlay(0.5)}
-              className="p-4 bg-orange-100 rounded-full hover:bg-orange-200 transition-all self-end"
+              className={cn("bg-orange-100 rounded-full hover:bg-orange-200 transition-all self-end", keyboardOpen ? "p-2" : "p-4")}
             >
               <Volume2 className="w-6 h-6 text-orange-600" />
               <span className="text-xs text-orange-500 block">느리게</span>
             </button>
           </div>
-          <p className="text-xs text-gray-300 mt-3">재생 횟수: {playCount}</p>
+          {!keyboardOpen && <p className="text-xs text-gray-300 mt-3">재생 횟수: {playCount}</p>}
           {submitted && (
             <p className="text-sm text-gray-500 mt-2">한국어 뜻: <span className="font-bold">{currentWord.korean}</span></p>
           )}
@@ -215,7 +224,8 @@ function ListeningContent() {
             disabled={submitted}
             placeholder="들은 단어를 입력하세요"
             className={cn(
-              "input-field text-center text-2xl font-bold py-5 mb-4",
+              "input-field text-center font-bold",
+              keyboardOpen ? "text-xl py-3 mb-2" : "text-2xl py-5 mb-4",
               submitted && isCorrect && "border-green-500 bg-green-50 text-green-700",
               submitted && !isCorrect && "border-red-500 bg-red-50 text-red-700"
             )}

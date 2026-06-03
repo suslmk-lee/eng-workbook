@@ -9,6 +9,7 @@ import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { useKeyboardOpen } from "@/lib/use-keyboard-open";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
@@ -28,10 +29,18 @@ function SpellingContent() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<{ show: boolean; isCorrect: boolean }>({ show: false, isCorrect: false });
   const [combo, setCombo] = useState(0);
+  const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
     loadWords();
   }, [setId]);
+
+  // 키보드가 열리면 문제+입력란이 키보드 위에 보이도록 맨 위로 스크롤
+  useEffect(() => {
+    if (!keyboardOpen) return;
+    const tid = setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 250);
+    return () => clearTimeout(tid);
+  }, [keyboardOpen]);
 
   useEffect(() => {
     if (!submitted && inputRef.current) {
@@ -184,7 +193,7 @@ function SpellingContent() {
   const progress = ((currentIndex + 1) / words.length) * 100;
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <div className={cn("min-h-screen", keyboardOpen ? "p-2" : "p-4 md:p-8")}>
       <AnswerFeedback
         show={feedback.show}
         isCorrect={feedback.isCorrect}
@@ -193,12 +202,12 @@ function SpellingContent() {
       />
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className={cn("flex items-center justify-between", keyboardOpen ? "mb-2" : "mb-6")}>
           <div className="flex items-center gap-3">
             <Link href="/student" className="p-2 hover:bg-white rounded-xl transition-colors">
               <ArrowLeft className="w-6 h-6 text-gray-600" />
             </Link>
-            <h1 className="text-2xl font-bold text-gray-800">스펠링 입력</h1>
+            <h1 className={cn("font-bold text-gray-800", keyboardOpen ? "text-lg" : "text-2xl")}>스펠링 입력</h1>
           </div>
           <div className="flex items-center gap-2">
             {combo >= 2 && (
@@ -210,7 +219,7 @@ function SpellingContent() {
           </div>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-2 mb-8">
+        <div className={cn("w-full bg-gray-200 rounded-full h-2", keyboardOpen ? "mb-3" : "mb-8")}>
           <div
             className="bg-gradient-to-r from-orange-400 to-orange-600 h-2 rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
@@ -218,12 +227,12 @@ function SpellingContent() {
         </div>
 
         {/* Question */}
-        <div className="bg-white rounded-3xl p-8 shadow-md mb-6 text-center">
-          <p className="text-sm text-gray-400 mb-2">이 뜻에 맞는 영어 단어를 써보세요</p>
-          <h2 className="text-3xl font-bold text-gray-800 mb-4">{currentWord.korean}</h2>
+        <div className={cn("bg-white shadow-md text-center", keyboardOpen ? "rounded-2xl p-3 mb-3" : "rounded-3xl p-8 mb-6")}>
+          {!keyboardOpen && <p className="text-sm text-gray-400 mb-2">이 뜻에 맞는 영어 단어를 써보세요</p>}
+          <h2 className={cn("font-bold text-gray-800", keyboardOpen ? "text-2xl mb-1" : "text-3xl mb-4")}>{currentWord.korean}</h2>
 
           {showHint && !submitted && (
-            <p className="text-lg text-gray-400 font-mono tracking-widest mb-4">
+            <p className={cn("text-lg text-gray-400 font-mono tracking-widest", keyboardOpen ? "mb-1" : "mb-4")}>
               {getHint(currentWord.english)}
             </p>
           )}
@@ -231,7 +240,7 @@ function SpellingContent() {
           {!showHint && !submitted && (
             <button
               onClick={() => setShowHint(true)}
-              className="text-sm text-primary-500 hover:text-primary-700 mb-4"
+              className={cn("text-sm text-primary-500 hover:text-primary-700", keyboardOpen ? "mb-0" : "mb-4")}
             >
               힌트 보기
             </button>
@@ -239,7 +248,7 @@ function SpellingContent() {
         </div>
 
         {/* Input */}
-        <form onSubmit={handleSubmit} className="mb-6">
+        <form onSubmit={handleSubmit} className={keyboardOpen ? "mb-2" : "mb-6"}>
           <div className="relative">
             <input
               ref={inputRef}
@@ -249,7 +258,8 @@ function SpellingContent() {
               disabled={submitted}
               placeholder="영어 단어를 입력하세요"
               className={cn(
-                "input-field text-center text-2xl font-bold py-5",
+                "input-field text-center font-bold",
+                keyboardOpen ? "text-xl py-3" : "text-2xl py-5",
                 submitted && isCorrect && "border-green-500 bg-green-50 text-green-700",
                 submitted && !isCorrect && "border-red-500 bg-red-50 text-red-700"
               )}
@@ -259,7 +269,7 @@ function SpellingContent() {
           </div>
 
           {!submitted ? (
-            <button type="submit" className="btn-primary w-full mt-4" disabled={!input.trim()}>
+            <button type="submit" className={cn("btn-primary w-full", keyboardOpen ? "mt-2" : "mt-4")} disabled={!input.trim()}>
               확인
             </button>
           ) : (

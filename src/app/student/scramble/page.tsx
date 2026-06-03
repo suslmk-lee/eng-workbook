@@ -154,12 +154,12 @@ function ScrambleContent() {
         word={feedback.isCorrect ? currentWord.english : undefined}
       />
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-3 md:mb-6">
           <div className="flex items-center gap-3">
             <Link href="/student" className="p-2 hover:bg-white rounded-xl transition-colors">
               <ArrowLeft className="w-6 h-6 text-gray-600" />
             </Link>
-            <h1 className="text-2xl font-bold text-gray-800">단어 스크램블</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-800">단어 스크램블</h1>
           </div>
           <div className="flex items-center gap-2">
             {combo >= 2 && (
@@ -171,17 +171,17 @@ function ScrambleContent() {
           </div>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-2 mb-8">
+        <div className="w-full bg-gray-200 rounded-full h-2 mb-4 md:mb-8">
           <div className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
 
-        <div className="bg-white rounded-3xl p-8 shadow-md mb-6 text-center">
+        <div className="bg-white rounded-3xl p-4 md:p-8 shadow-md mb-4 md:mb-6 text-center">
           <p className="text-sm text-gray-400 mb-2">이 뜻에 맞는 영어 단어를 맞춰보세요</p>
-          <h2 className="text-3xl font-bold text-gray-800">{currentWord.korean}</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-800">{currentWord.korean}</h2>
         </div>
 
         {/* Answer Area */}
-        <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+        <div className="bg-white rounded-2xl p-4 md:p-6 shadow-md mb-4 md:mb-6">
           <div className="flex flex-wrap gap-2 justify-center min-h-[60px] items-center">
             {answer.length === 0 && (
               <p className="text-gray-300">글자를 클릭하세요</p>
@@ -204,7 +204,7 @@ function ScrambleContent() {
         </div>
 
         {/* Scrambled Letters */}
-        <div className="flex flex-wrap gap-2 justify-center mb-8">
+        <div className="flex flex-wrap gap-2 justify-center mb-4 md:mb-8">
           {scrambled.map((letter, i) => (
             <button
               key={`scr-${i}`}
