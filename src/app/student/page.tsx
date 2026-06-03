@@ -24,6 +24,7 @@ import {
 import { WordSet, MODULE_LIST, ModuleInfo, ModuleType } from "@/lib/types";
 import { getLatestWordSet, getWordsForReview, getTodayStats, TodayStats } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import TtsStatusBadge from "@/components/TtsStatusBadge";
 
 const iconMap: Record<string, any> = {
   Layers, CircleHelp, Puzzle, PenLine, Shuffle, Headphones, Zap,
@@ -174,7 +175,10 @@ export default function StudentPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">공부하기 📚</h1>
-            <p className="text-sm text-gray-500">{profile?.name}님 화이팅!</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-500">{profile?.name}님 화이팅!</p>
+              <TtsStatusBadge />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm">

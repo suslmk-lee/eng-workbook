@@ -14,11 +14,26 @@ function publicUrl(key: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/${TTS_BUCKET}/${key}`;
 }
 
+// 현재 TTS 동작 모드 조회 (메인화면 상태 표시용)
+//  - cache: OpenAI 생성 + Storage 캐싱
+//  - direct: OpenAI 생성 (캐싱 없음, 매번 호출)
+//  - fallback: 키 미설정 → 브라우저 내장 음성
+export async function GET() {
+  const mode = !OPENAI_API_KEY
+    ? "fallback"
+    : SUPABASE_URL && SERVICE_ROLE_KEY
+      ? "cache"
+      : "direct";
+  return NextResponse.json({ mode });
+}
+
 export async function POST(req: Request) {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !OPENAI_API_KEY) {
+  if (!OPENAI_API_KEY) {
     // 키 미설정 → 클라이언트가 Web Speech로 폴백하도록 503
     return NextResponse.json({ error: "TTS not configured" }, { status: 503 });
   }
+  // Supabase 키가 없으면 캐싱 없이 mp3를 직접 응답
+  const canCache = Boolean(SUPABASE_URL && SERVICE_ROLE_KEY);
 
   let body: { text?: unknown; speed?: unknown };
   try {
@@ -34,16 +49,20 @@ export async function POST(req: Request) {
   const speed = clampSpeed(typeof body.speed === "number" ? body.speed : 0.8);
 
   const key = ttsObjectKey(text, speed);
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  const supabase = canCache
+    ? createClient(SUPABASE_URL!, SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false },
+      })
+    : null;
 
   // 이미 캐시에 있으면 OpenAI 호출 없이 바로 반환 (비용 절감)
-  const { data: existing } = await supabase.storage
-    .from(TTS_BUCKET)
-    .list(key.split("/")[0], { search: key.split("/").pop() });
-  if (existing?.some((f) => f.name === key.split("/").pop())) {
-    return NextResponse.json({ url: publicUrl(key), cached: true });
+  if (supabase) {
+    const { data: existing } = await supabase.storage
+      .from(TTS_BUCKET)
+      .list(key.split("/")[0], { search: key.split("/").pop() });
+    if (existing?.some((f) => f.name === key.split("/").pop())) {
+      return NextResponse.json({ url: publicUrl(key), cached: true });
+    }
   }
 
   // OpenAI TTS 생성
@@ -72,6 +91,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "openai request error" }, { status: 502 });
   }
 
+  // 캐싱 불가 환경 → mp3를 직접 응답 (매 요청마다 OpenAI 호출)
+  if (!supabase) {
+    return new NextResponse(audioBuffer, {
+      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+    });
+  }
+
   // Storage에 캐싱
   const { error: uploadError } = await supabase.storage
     .from(TTS_BUCKET)
@@ -81,7 +107,10 @@ export async function POST(req: Request) {
       cacheControl: "31536000", // 1년
     });
   if (uploadError) {
-    return NextResponse.json({ error: "upload failed", detail: uploadError.message }, { status: 500 });
+    // 업로드 실패해도 음성은 이미 생성됨 → mp3 직접 응답으로 재생은 보장
+    return new NextResponse(audioBuffer, {
+      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+    });
   }
 
   return NextResponse.json({ url: publicUrl(key), cached: false });

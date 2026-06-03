@@ -56,9 +56,16 @@ cp .env.local.example .env.local
 
 ## 음성 발음 (TTS) 설정
 
-브라우저 내장 음성은 기기마다 품질이 달라, OpenAI TTS로 mp3를 생성해 Supabase
-Storage에 캐싱합니다. 한 번 생성된 단어는 CDN에서 바로 재생되어 추가 비용/지연이
-없으며, 키가 없으면 자동으로 브라우저 내장 음성으로 폴백합니다.
+브라우저 내장 음성은 기기마다 품질이 달라, OpenAI TTS로 발음 mp3를 생성합니다.
+키 설정에 따라 세 가지 모드로 동작합니다:
+
+| 모드 | 필요 키 | 동작 |
+|---|---|---|
+| Storage 캐싱 (권장) | `OPENAI_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | 단어당 1회만 OpenAI 호출, 이후 CDN 재생 |
+| 캐싱 없음 | `OPENAI_API_KEY`만 | 재생할 때마다 OpenAI 호출 (세션 내 반복 재생은 메모리 캐시) |
+| 키 없음 | 없음 | 브라우저 내장 음성(Web Speech)으로 자동 폴백 |
+
+캐싱 모드 설정:
 
 1. `src/lib/supabase-tts-storage.sql`을 Supabase SQL Editor에서 실행 (public `tts` 버킷 생성)
 2. `.env.local`에 키 추가:

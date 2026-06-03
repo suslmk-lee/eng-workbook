@@ -21,6 +21,7 @@ import {
   Camera,
 } from "lucide-react";
 import CameraOcr from "@/components/CameraOcr";
+import TtsStatusBadge from "@/components/TtsStatusBadge";
 import { WordSet, ParentChild } from "@/lib/types";
 import {
   createWordSet,
@@ -231,7 +232,10 @@ export default function ParentPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">학부모 페이지</h1>
-            <p className="text-sm text-gray-500">{profile?.name}님 환영합니다</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-500">{profile?.name}님 환영합니다</p>
+              <TtsStatusBadge />
+            </div>
           </div>
           <button
             onClick={handleSignOut}

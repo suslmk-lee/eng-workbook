@@ -47,21 +47,32 @@ export function speakEnglish(text: string, rate: number = 0.8): void {
   void playCloud(word, speed);
 }
 
+// 서버가 mp3를 직접 응답하는 경우(Storage 캐싱 미설정)를 위한 세션 메모리 캐시.
+// 같은 단어를 반복 재생할 때 OpenAI 재호출을 막습니다.
+const blobUrlCache = new Map<string, string>();
+
 async function playCloud(text: string, speed: number): Promise<void> {
-  // Supabase URL이 없으면 바로 폴백
-  if (!SUPABASE_URL) {
-    speakWithWebSpeech(text, speed);
-    return;
+  const key = ttsObjectKey(text, speed);
+
+  // 0) 세션 메모리 캐시 히트
+  const blobUrl = blobUrlCache.get(key);
+  if (blobUrl) {
+    try {
+      await playUrl(blobUrl);
+      return;
+    } catch {
+      blobUrlCache.delete(key);
+    }
   }
 
-  const cachedUrl = publicUrl(ttsObjectKey(text, speed));
-
-  // 1) 캐시 히트 시도
-  try {
-    await playUrl(cachedUrl);
-    return;
-  } catch {
-    // 캐시 미스 → 생성 단계로
+  // 1) Storage 캐시 히트 시도 (Supabase URL이 있을 때만)
+  if (SUPABASE_URL) {
+    try {
+      await playUrl(publicUrl(key));
+      return;
+    } catch {
+      // 캐시 미스 → 생성 단계로
+    }
   }
 
   // 2) 서버에서 생성
@@ -72,8 +83,19 @@ async function playCloud(text: string, speed: number): Promise<void> {
       body: JSON.stringify({ text, speed }),
     });
     if (!res.ok) throw new Error(`tts api ${res.status}`);
+
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("audio")) {
+      // 캐싱 미설정 서버 → mp3 바이트 직접 수신
+      const url = URL.createObjectURL(await res.blob());
+      blobUrlCache.set(key, url);
+      await playUrl(url);
+      return;
+    }
+
     const data = (await res.json()) as { url?: string };
-    await playUrl(data.url || cachedUrl);
+    if (!data.url) throw new Error("tts api: no url");
+    await playUrl(data.url);
     return;
   } catch {
     // 3) 최종 폴백
