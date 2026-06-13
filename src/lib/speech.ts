@@ -10,6 +10,27 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 let currentAudio: HTMLAudioElement | null = null;
 
+// ============ 발음 방식 사용자 설정 ============
+// cloud: OpenAI 고품질 음성 (인터넷, 첫 재생 지연 가능) / device: 기기 내장 음성 (즉시)
+export type TtsMode = "cloud" | "device";
+
+const TTS_MODE_KEY = "ew_tts_mode";
+
+export function getTtsMode(): TtsMode {
+  if (typeof window === "undefined") return "cloud";
+  try {
+    return localStorage.getItem(TTS_MODE_KEY) === "device" ? "device" : "cloud";
+  } catch {
+    return "cloud";
+  }
+}
+
+export function setTtsMode(mode: TtsMode): void {
+  try {
+    localStorage.setItem(TTS_MODE_KEY, mode);
+  } catch {}
+}
+
 function publicUrl(key: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/${TTS_BUCKET}/${key}`;
 }
@@ -44,6 +65,10 @@ export function speakEnglish(text: string, rate: number = 0.8): void {
 
   const speed = clampSpeed(rate);
   stopAll();
+  if (getTtsMode() === "device") {
+    speakWithWebSpeech(word, speed);
+    return;
+  }
   void playCloud(word, speed);
 }
 
