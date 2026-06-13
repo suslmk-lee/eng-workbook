@@ -119,6 +119,88 @@ export async function POST(req: Request) {
   return NextResponse.json({ loginId, childId });
 }
 
+// 기존 이메일 계정 → PIN 계정 전환: { childId, loginId, pin }
+// 계정 ID는 그대로 두고 로그인 수단(이메일/비밀번호)만 교체하므로 학습 기록이 유지된다.
+export async function PUT(req: Request) {
+  const cfgErr = configError();
+  if (cfgErr) return cfgErr;
+
+  const parentId = await authParent(req);
+  if (!parentId) {
+    return NextResponse.json({ error: "학부모 로그인이 필요합니다" }, { status: 401 });
+  }
+
+  let body: { childId?: unknown; loginId?: unknown; pin?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
+  const childId = typeof body.childId === "string" ? body.childId : "";
+  const loginId = typeof body.loginId === "string" ? body.loginId.trim().toLowerCase() : "";
+  const pin = typeof body.pin === "string" ? body.pin : "";
+  if (!childId) return NextResponse.json({ error: "childId가 필요합니다" }, { status: 400 });
+  if (!isValidLoginId(loginId)) {
+    return NextResponse.json(
+      { error: "아이디는 영문 소문자·숫자 3~12자로 만들어주세요" },
+      { status: 400 }
+    );
+  }
+  if (!isValidPin(pin)) {
+    return NextResponse.json({ error: "PIN은 숫자 4자리여야 해요" }, { status: 400 });
+  }
+
+  const admin = adminClient();
+
+  // 본인 자녀인지 확인
+  const { data: link } = await admin
+    .from("parent_child")
+    .select("id")
+    .eq("parent_id", parentId)
+    .eq("child_id", childId)
+    .maybeSingle();
+  if (!link) {
+    return NextResponse.json({ error: "연결된 자녀가 아닙니다" }, { status: 403 });
+  }
+
+  const { data: childProfile } = await admin
+    .from("profiles")
+    .select("email, role")
+    .eq("id", childId)
+    .single();
+  if (!childProfile || childProfile.role !== "student") {
+    return NextResponse.json({ error: "학생 계정만 전환할 수 있어요" }, { status: 400 });
+  }
+  if (isStudentEmail(childProfile.email)) {
+    return NextResponse.json({ error: "이미 PIN 계정이에요" }, { status: 400 });
+  }
+
+  const email = studentEmail(loginId);
+  const { error: updateError } = await admin.auth.admin.updateUserById(childId, {
+    email,
+    password: derivePassword(loginId, pin),
+    email_confirm: true,
+  });
+  if (updateError) {
+    if (/already|exists|registered/i.test(updateError.message)) {
+      return NextResponse.json({ error: "이미 사용 중인 아이디예요" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "전환 실패", detail: updateError.message }, { status: 500 });
+  }
+
+  // 화면 표시용 profiles.email도 동기화
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({ email })
+    .eq("id", childId);
+  if (profileError) {
+    return NextResponse.json({ error: "프로필 갱신 실패", detail: profileError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ loginId });
+}
+
 // PIN 재설정: { childId, pin }
 export async function PATCH(req: Request) {
   const cfgErr = configError();

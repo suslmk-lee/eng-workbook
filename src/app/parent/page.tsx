@@ -39,7 +39,7 @@ import {
 import { formatDate, getTodayString, getAccuracyColor } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
-import { isStudentEmail, loginIdFromEmail, isValidPin } from "@/lib/pin-auth";
+import { isStudentEmail, loginIdFromEmail, isValidPin, isValidLoginId } from "@/lib/pin-auth";
 
 interface WordInput {
   english: string;
@@ -164,6 +164,51 @@ export default function ParentPage() {
       setCreateError("네트워크 오류가 발생했습니다");
     }
     setCreateLoading(false);
+  }
+
+  async function handleConvertToPin(childId: string, childDisplayName: string) {
+    const rawId = prompt(
+      `${childDisplayName}의 로그인 아이디를 정해주세요 (영문 소문자·숫자 3~12자)`
+    );
+    if (rawId === null) return;
+    const loginId = rawId.trim().toLowerCase();
+    if (!isValidLoginId(loginId)) {
+      alert("아이디는 영문 소문자·숫자 3~12자예요");
+      return;
+    }
+    const newPin = prompt("PIN (숫자 4자리)을 정해주세요");
+    if (newPin === null) return;
+    if (!isValidPin(newPin)) {
+      alert("PIN은 숫자 4자리여야 해요");
+      return;
+    }
+    if (
+      !confirm(
+        `전환하면 기존 이메일/비밀번호 로그인은 더 이상 쓸 수 없어요.\n학습 기록은 모두 유지됩니다.\n\n아이디: ${loginId}\nPIN: ${newPin}\n\n전환할까요?`
+      )
+    )
+      return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/children", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ childId, loginId, pin: newPin }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "전환에 실패했습니다");
+      } else {
+        alert(`전환 완료!\n\n로그인 아이디: ${loginId}\nPIN: ${newPin}\n\n아이에게 알려주세요 😊`);
+        await loadChildren();
+      }
+    } catch {
+      alert("네트워크 오류가 발생했습니다");
+    }
   }
 
   async function handleResetPin(childId: string, childDisplayName: string) {
@@ -477,13 +522,21 @@ export default function ParentPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
-                          {childIsPin && (
+                          {childIsPin ? (
                             <button
                               onClick={() => handleResetPin(pc.child_id, pc.child?.name || "자녀")}
                               className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-xl transition-colors"
                               title="PIN 재설정"
                             >
                               <KeyRound className="w-5 h-5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleConvertToPin(pc.child_id, pc.child?.name || "자녀")}
+                              className="px-3 py-1.5 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors whitespace-nowrap"
+                              title="아이디+PIN 로그인으로 전환 (학습 기록 유지)"
+                            >
+                              PIN 전환
                             </button>
                           )}
                           <button
