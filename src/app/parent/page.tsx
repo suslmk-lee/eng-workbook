@@ -16,6 +16,7 @@ import {
   UserPlus,
   Users,
   X,
+  KeyRound,
   Award,
   TrendingUp,
   Camera,
@@ -37,6 +38,8 @@ import {
 } from "@/lib/api";
 import { formatDate, getTodayString, getAccuracyColor } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
+import { isStudentEmail, loginIdFromEmail, isValidPin } from "@/lib/pin-auth";
 
 interface WordInput {
   english: string;
@@ -63,6 +66,11 @@ export default function ParentPage() {
   const [childEmail, setChildEmail] = useState("");
   const [linkError, setLinkError] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  const [childName, setChildName] = useState("");
+  const [childLoginId, setChildLoginId] = useState("");
+  const [childPin, setChildPin] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [heatmapDays, setHeatmapDays] = useState<30 | 60 | 90>(30);
   const [showCamera, setShowCamera] = useState(false);
@@ -123,6 +131,64 @@ export default function ParentPage() {
     await unlinkChild(user.id, childId);
     if (selectedChildId === childId) setSelectedChildId("");
     await loadChildren();
+  }
+
+  async function handleCreateChild(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setCreateLoading(true);
+    setCreateError("");
+
+    const loginId = childLoginId.trim().toLowerCase();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/children", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ name: childName.trim(), loginId, pin: childPin }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateError(data.error || "계정 생성에 실패했습니다");
+      } else {
+        alert(`${childName.trim()} 계정이 만들어졌어요!\n\n로그인 아이디: ${loginId}\nPIN: ${childPin}\n\n아이에게 알려주세요 😊`);
+        setChildName("");
+        setChildLoginId("");
+        setChildPin("");
+        await loadChildren();
+      }
+    } catch {
+      setCreateError("네트워크 오류가 발생했습니다");
+    }
+    setCreateLoading(false);
+  }
+
+  async function handleResetPin(childId: string, childDisplayName: string) {
+    const newPin = prompt(`${childDisplayName}의 새 PIN (숫자 4자리)을 입력하세요`);
+    if (newPin === null) return;
+    if (!isValidPin(newPin)) {
+      alert("PIN은 숫자 4자리여야 해요");
+      return;
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/children", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ childId, pin: newPin }),
+      });
+      const data = await res.json();
+      if (!res.ok) alert(data.error || "PIN 변경에 실패했습니다");
+      else alert(`PIN이 ${newPin}(으)로 변경되었어요`);
+    } catch {
+      alert("네트워크 오류가 발생했습니다");
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -311,56 +377,126 @@ export default function ParentPage() {
         {/* Children Tab */}
         {tab === "children" && (
           <div className="space-y-6">
-            <form onSubmit={handleAddChild} className="bg-white rounded-3xl p-6 shadow-md">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">자녀 등록</h2>
+            <form onSubmit={handleCreateChild} className="bg-white rounded-3xl p-6 shadow-md">
+              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary-500" />
+                자녀 계정 만들기
+              </h2>
               <p className="text-sm text-gray-500 mb-4">
-                자녀가 학생으로 회원가입한 이메일을 입력하세요.
+                아이는 여기서 만든 <b>아이디</b>와 <b>PIN 4자리</b>로 로그인해요. 이메일이 필요 없어요.
               </p>
-              <div className="flex gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <input
-                  type="email"
-                  value={childEmail}
-                  onChange={(e) => setChildEmail(e.target.value)}
-                  placeholder="자녀의 이메일"
-                  className="input-field flex-1"
+                  type="text"
+                  value={childName}
+                  onChange={(e) => setChildName(e.target.value)}
+                  placeholder="이름 (예: 민준)"
+                  className="input-field"
                   required
                 />
-                <button
-                  type="submit"
-                  disabled={linkLoading}
-                  className="btn-primary px-6 disabled:opacity-50 whitespace-nowrap"
-                >
-                  {linkLoading ? "등록 중..." : "등록"}
-                </button>
+                <input
+                  type="text"
+                  value={childLoginId}
+                  onChange={(e) => setChildLoginId(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""))}
+                  placeholder="아이디 (영문·숫자 3~12자)"
+                  maxLength={12}
+                  autoCapitalize="none"
+                  className="input-field"
+                  required
+                />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={childPin}
+                  onChange={(e) => setChildPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  placeholder="PIN (숫자 4자리)"
+                  maxLength={4}
+                  className="input-field"
+                  required
+                />
               </div>
-              {linkError && (
-                <p className="text-red-500 text-sm mt-2">{linkError}</p>
+              <button
+                type="submit"
+                disabled={createLoading}
+                className="btn-primary w-full mt-4 disabled:opacity-50"
+              >
+                {createLoading ? "만드는 중..." : "계정 만들기"}
+              </button>
+              {createError && (
+                <p className="text-red-500 text-sm mt-2">{createError}</p>
               )}
             </form>
+
+            <details className="bg-white rounded-3xl p-6 shadow-md">
+              <summary className="font-bold text-gray-600 cursor-pointer">
+                이메일로 가입한 학생 계정 연결 (기존 방식)
+              </summary>
+              <form onSubmit={handleAddChild} className="mt-4">
+                <div className="flex gap-3">
+                  <input
+                    type="email"
+                    value={childEmail}
+                    onChange={(e) => setChildEmail(e.target.value)}
+                    placeholder="자녀의 이메일"
+                    className="input-field flex-1"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={linkLoading}
+                    className="btn-primary px-6 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {linkLoading ? "등록 중..." : "연결"}
+                  </button>
+                </div>
+                {linkError && (
+                  <p className="text-red-500 text-sm mt-2">{linkError}</p>
+                )}
+              </form>
+            </details>
 
             <div className="bg-white rounded-3xl p-6 shadow-md">
               <h2 className="text-xl font-bold text-gray-800 mb-4">등록된 자녀</h2>
               {children.length === 0 ? (
                 <p className="text-gray-400 text-center py-8">
                   아직 등록된 자녀가 없습니다.<br />
-                  자녀가 먼저 학생으로 회원가입해야 합니다.
+                  위에서 자녀 계정을 만들어주세요.
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {children.map((pc) => (
-                    <div key={pc.child_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
-                      <div>
-                        <p className="font-medium text-gray-800">{pc.child?.name}</p>
-                        <p className="text-sm text-gray-500">{pc.child?.email}</p>
+                  {children.map((pc) => {
+                    const childIsPin = isStudentEmail(pc.child?.email);
+                    return (
+                      <div key={pc.child_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                        <div>
+                          <p className="font-medium text-gray-800">{pc.child?.name}</p>
+                          <p className="text-sm text-gray-500">
+                            {childIsPin
+                              ? `아이디: ${loginIdFromEmail(pc.child!.email)}`
+                              : pc.child?.email}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {childIsPin && (
+                            <button
+                              onClick={() => handleResetPin(pc.child_id, pc.child?.name || "자녀")}
+                              className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-xl transition-colors"
+                              title="PIN 재설정"
+                            >
+                              <KeyRound className="w-5 h-5" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleRemoveChild(pc.child_id)}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                            title="목록에서 제거"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => handleRemoveChild(pc.child_id)}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
