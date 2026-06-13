@@ -820,6 +820,8 @@ const MODULE_LABEL: Record<string, string> = {
   scramble: "스크램블",
   listening: "듣기",
   speed: "스피드",
+  speaking: "발음",
+  battle: "배틀",
   exam: "시험",
 };
 

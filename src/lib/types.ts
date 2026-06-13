@@ -72,6 +72,8 @@ export type ModuleType =
   | "scramble"
   | "listening"
   | "speed"
+  | "speaking"
+  | "battle"
   | "exam";
 
 export interface ModuleInfo {
@@ -147,5 +149,21 @@ export const MODULE_LIST: ModuleInfo[] = [
     icon: "Zap",
     color: "text-kid-red",
     bgColor: "bg-red-100",
+  },
+  {
+    type: "speaking",
+    title: "발음 챌린지",
+    description: "마이크에 대고 말해보세요",
+    icon: "Mic",
+    color: "text-indigo-500",
+    bgColor: "bg-indigo-100",
+  },
+  {
+    type: "battle",
+    title: "몬스터 배틀",
+    description: "정답으로 몬스터를 물리쳐요!",
+    icon: "Swords",
+    color: "text-rose-500",
+    bgColor: "bg-rose-100",
   },
 ];

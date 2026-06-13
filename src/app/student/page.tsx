@@ -20,6 +20,8 @@ import {
   RotateCcw,
   Award,
   Lock,
+  Mic,
+  Swords,
 } from "lucide-react";
 import { WordSet, MODULE_LIST, ModuleInfo, ModuleType } from "@/lib/types";
 import { getLatestWordSet, getWordsForReview, getTodayStats, TodayStats } from "@/lib/api";
@@ -27,7 +29,7 @@ import { useAuth } from "@/lib/auth-context";
 import TtsModeToggle from "@/components/TtsModeToggle";
 
 const iconMap: Record<string, any> = {
-  Layers, CircleHelp, Puzzle, PenLine, Shuffle, Headphones, Zap,
+  Layers, CircleHelp, Puzzle, PenLine, Shuffle, Headphones, Zap, Mic, Swords,
 };
 
 const MODULE_TITLES: Record<ModuleType, string> = {
@@ -38,6 +40,8 @@ const MODULE_TITLES: Record<ModuleType, string> = {
   scramble: "스크램블",
   listening: "듣기",
   speed: "스피드",
+  speaking: "발음",
+  battle: "배틀",
   exam: "시험",
 };
 
