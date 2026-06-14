@@ -67,3 +67,10 @@ coverage/
 *.pem
 *.cert
 *.key
+.env*
+
+# docs JSON (로컬 메모/상태 파일)
+docs/*.json
+
+# Claude Code 로컬 설정
+.claude/
