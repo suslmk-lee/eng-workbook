@@ -22,26 +22,8 @@ export async function getChildren(parentId: string): Promise<ParentChild[]> {
   return data || [];
 }
 
-export async function linkChild(parentId: string, childEmail: string): Promise<{ error: string | null }> {
-  const { data: childProfile, error: findError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("email", childEmail)
-    .eq("role", "student")
-    .single();
-
-  if (findError || !childProfile) return { error: "해당 이메일의 학생 계정을 찾을 수 없습니다." };
-
-  const { error } = await supabase
-    .from("parent_child")
-    .insert({ parent_id: parentId, child_id: childProfile.id });
-
-  if (error) {
-    if (error.code === "23505") return { error: "이미 등록된 자녀입니다." };
-    return { error: error.message };
-  }
-  return { error: null };
-}
+// 자녀 연결은 서버(/api/children)에서만 만든다. 클라이언트에서 임의로 연결하면
+// 남의 아이 계정의 PIN을 재설정할 수 있어 제거함 (supabase-migration-security.sql 참고).
 
 export async function unlinkChild(parentId: string, childId: string): Promise<boolean> {
   const { error } = await supabase
