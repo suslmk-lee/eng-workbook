@@ -1,4 +1,5 @@
 import { TTS_BUCKET, clampSpeed, ttsObjectKey } from "./tts-config";
+import { supabase } from "./supabase";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -100,11 +101,19 @@ async function playCloud(text: string, speed: number): Promise<void> {
     }
   }
 
-  // 2) 서버에서 생성
+  // 2) 서버에서 생성 (로그인 토큰 필요, 없으면 바로 폴백)
   try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) throw new Error("not signed in");
+
     const res = await fetch("/api/tts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({ text, speed }),
     });
     if (!res.ok) throw new Error(`tts api ${res.status}`);

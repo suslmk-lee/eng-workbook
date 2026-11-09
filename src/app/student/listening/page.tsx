@@ -5,16 +5,16 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish, initVoices } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import { useKeyboardOpen } from "@/lib/use-keyboard-open";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
 function ListeningContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -50,7 +50,7 @@ function ListeningContent() {
   }, [currentIndex, submitted]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -74,7 +74,7 @@ function ListeningContent() {
     setIsCorrect(correct);
     setSubmitted(true);
     setResults([...results, { word: currentWord, correct }]);
-    saveLearningRecord(currentWord.id, "listening", correct, undefined, user?.id);
+    saveLearningRecord(currentWord.id, "listening", correct, undefined, child.id);
     const newCombo = correct ? combo + 1 : 0;
     setCombo(newCombo);
     setFeedback({ show: true, isCorrect: correct });
@@ -106,9 +106,9 @@ function ListeningContent() {
     setFinished(true);
     const correctCount = results.filter((r) => r.correct).length;
     if (correctCount === words.length) {
-      await addReward("trophy", "듣고 쓰기 만점! 🏆", "listening", user?.id);
+      await addReward("trophy", "듣고 쓰기 만점! 🏆", "listening", child.id);
     } else if (correctCount >= words.length * 0.8) {
-      await addReward("star", "듣고 쓰기 80% 이상! ⭐", "listening", user?.id);
+      await addReward("star", "듣고 쓰기 80% 이상! ⭐", "listening", child.id);
     }
   }
 

@@ -15,15 +15,18 @@ import {
   LogOut,
   UserPlus,
   Users,
-  X,
   KeyRound,
   Award,
   TrendingUp,
   Camera,
+  Pencil,
+  Play,
 } from "lucide-react";
 import CameraOcr from "@/components/CameraOcr";
 import TtsStatusBadge from "@/components/TtsStatusBadge";
-import { WordSet, ParentChild } from "@/lib/types";
+import ParentPinDialog from "@/components/ParentPinDialog";
+import LegacyStudentNotice from "@/components/LegacyStudentNotice";
+import { WordSet, Child } from "@/lib/types";
 import {
   createWordSet,
   getWordSetsByChild,
@@ -31,15 +34,16 @@ import {
   getDashboardStats,
   getWordStats,
   getChildren,
-  linkChild,
-  unlinkChild,
+  createChild,
+  renameChild,
+  deleteChild,
+  hasParentPin,
   getDailyStatsRange,
   DailyStats,
 } from "@/lib/api";
-import { formatDate, getTodayString, getAccuracyColor } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
-import { supabase } from "@/lib/supabase";
-import { isStudentEmail, loginIdFromEmail, isValidPin, isValidLoginId } from "@/lib/pin-auth";
+import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
+import { useAuth, isLegacyStudent } from "@/lib/auth-context";
+import { isParentUnlocked, setParentUnlocked } from "@/lib/child-mode";
 
 interface WordInput {
   english: string;
@@ -61,49 +65,57 @@ export default function ParentPage() {
   const [stats, setStats] = useState<any>(null);
   const [expandedSet, setExpandedSet] = useState<string | null>(null);
   const [wordStats, setWordStats] = useState<any[]>([]);
-  const [children, setChildren] = useState<ParentChild[]>([]);
+  const [children, setChildren] = useState<Child[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>("");
-  const [childEmail, setChildEmail] = useState("");
-  const [linkError, setLinkError] = useState("");
-  const [linkLoading, setLinkLoading] = useState(false);
   const [childName, setChildName] = useState("");
-  const [childLoginId, setChildLoginId] = useState("");
-  const [childPin, setChildPin] = useState("");
   const [createError, setCreateError] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [heatmapDays, setHeatmapDays] = useState<30 | 60 | 90>(30);
   const [showCamera, setShowCamera] = useState(false);
+  const [gateChecked, setGateChecked] = useState(false); // 부모 PIN 잠금 확인 끝
+  const [hasPin, setHasPin] = useState(false);
+  const [pinDialog, setPinDialog] = useState<"setup" | "change" | null>(null);
 
   const userId = user?.id;
-  const role = profile?.role ?? (user?.user_metadata?.role as string | undefined);
+  const legacy = isLegacyStudent(user, profile);
 
   useEffect(() => {
     if (authLoading) return;
     if (!userId) { router.replace("/login"); return; }
-    if (!role) { router.replace("/login"); return; }
-    if (role !== "parent") { router.replace("/login"); return; }
-    loadChildren();
-  }, [userId, role, authLoading]);
+    if (legacy) return;
+    (async () => {
+      // 부모 PIN이 있으면, 이 탭에서 PIN을 확인한 경우에만 들어올 수 있다 (자녀 모드 잠금)
+      const pin = await hasParentPin();
+      if (pin && !isParentUnlocked(userId)) {
+        window.location.replace("/profiles");
+        return;
+      }
+      setHasPin(pin);
+      setGateChecked(true);
+      loadChildren();
+    })();
+  }, [userId, legacy, authLoading]);
 
   useEffect(() => {
     if (selectedChildId) loadData();
   }, [selectedChildId, heatmapDays]);
 
   async function loadChildren() {
-    if (!user) return;
-    const result = await getChildren(user.id);
+    const result = await getChildren();
     setChildren(result);
-    if (result.length > 0 && !selectedChildId) {
-      setSelectedChildId(result[0].child_id);
+    if (result.length === 0) {
+      setSelectedChildId("");
+    } else if (!result.some((c) => c.id === selectedChildId)) {
+      setSelectedChildId(result[0].id);
     }
   }
 
   async function loadData() {
-    if (!user || !selectedChildId) return;
+    if (!selectedChildId) return;
     const [sets, dashStats, daily] = await Promise.all([
       getWordSetsByChild(selectedChildId),
-      getDashboardStats(user.id, selectedChildId),
+      getDashboardStats(selectedChildId),
       getDailyStatsRange(selectedChildId, heatmapDays),
     ]);
     setDailyStats(daily);
@@ -111,129 +123,53 @@ export default function ParentPage() {
     setStats(dashStats);
   }
 
-  async function handleAddChild(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user || !childEmail.trim()) return;
-    setLinkLoading(true);
-    setLinkError("");
-    const result = await linkChild(user.id, childEmail.trim());
-    if (result.error) {
-      setLinkError(result.error);
-    } else {
-      setChildEmail("");
-      await loadChildren();
-    }
-    setLinkLoading(false);
-  }
-
-  async function handleRemoveChild(childId: string) {
-    if (!user || !confirm("이 자녀를 목록에서 제거할까요?")) return;
-    await unlinkChild(user.id, childId);
-    if (selectedChildId === childId) setSelectedChildId("");
-    await loadChildren();
-  }
-
   async function handleCreateChild(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    const name = childName.trim();
+    if (!name) return;
     setCreateLoading(true);
     setCreateError("");
-
-    const loginId = childLoginId.trim().toLowerCase();
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch("/api/children", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ name: childName.trim(), loginId, pin: childPin }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCreateError(data.error || "계정 생성에 실패했습니다");
-      } else {
-        alert(`${childName.trim()} 계정이 만들어졌어요!\n\n로그인 아이디: ${loginId}\nPIN: ${childPin}\n\n아이에게 알려주세요 😊`);
-        setChildName("");
-        setChildLoginId("");
-        setChildPin("");
-        await loadChildren();
-      }
-    } catch {
-      setCreateError("네트워크 오류가 발생했습니다");
+    const { child, error } = await createChild(name);
+    if (error || !child) {
+      setCreateError("자녀를 추가하지 못했어요. 이름은 1~30자로 입력해주세요.");
+    } else {
+      setChildName("");
+      await loadChildren();
+      setSelectedChildId(child.id);
     }
     setCreateLoading(false);
   }
 
-  async function handleConvertToPin(childId: string, childDisplayName: string) {
-    const rawId = prompt(
-      `${childDisplayName}의 로그인 아이디를 정해주세요 (영문 소문자·숫자 3~12자)`
-    );
-    if (rawId === null) return;
-    const loginId = rawId.trim().toLowerCase();
-    if (!isValidLoginId(loginId)) {
-      alert("아이디는 영문 소문자·숫자 3~12자예요");
+  async function handleRenameChild(child: Child) {
+    const name = prompt("새 이름을 입력하세요", child.name);
+    if (name === null || !name.trim() || name.trim() === child.name) return;
+    if (!(await renameChild(child.id, name))) {
+      alert("이름을 바꾸지 못했어요. 1~30자로 입력해주세요.");
       return;
     }
-    const newPin = prompt("PIN (숫자 4자리)을 정해주세요");
-    if (newPin === null) return;
-    if (!isValidPin(newPin)) {
-      alert("PIN은 숫자 4자리여야 해요");
-      return;
-    }
-    if (
-      !confirm(
-        `전환하면 기존 이메일/비밀번호 로그인은 더 이상 쓸 수 없어요.\n학습 기록은 모두 유지됩니다.\n\n아이디: ${loginId}\nPIN: ${newPin}\n\n전환할까요?`
-      )
-    )
-      return;
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch("/api/children", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ childId, loginId, pin: newPin }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || "전환에 실패했습니다");
-      } else {
-        alert(`전환 완료!\n\n로그인 아이디: ${loginId}\nPIN: ${newPin}\n\n아이에게 알려주세요 😊`);
-        await loadChildren();
-      }
-    } catch {
-      alert("네트워크 오류가 발생했습니다");
-    }
+    await loadChildren();
   }
 
-  async function handleResetPin(childId: string, childDisplayName: string) {
-    const newPin = prompt(`${childDisplayName}의 새 PIN (숫자 4자리)을 입력하세요`);
-    if (newPin === null) return;
-    if (!isValidPin(newPin)) {
-      alert("PIN은 숫자 4자리여야 해요");
+  async function handleDeleteChild(child: Child) {
+    const typed = prompt(
+      `${child.name}의 프로필을 삭제하면 단어 숙제·학습 기록·보상이 모두 지워지고 되돌릴 수 없어요.\n\n삭제하려면 아이 이름(${child.name})을 입력하세요.`
+    );
+    if (typed === null) return;
+    if (typed.trim() !== child.name) {
+      alert("이름이 일치하지 않아 삭제하지 않았어요.");
       return;
     }
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch("/api/children", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
-        },
-        body: JSON.stringify({ childId, pin: newPin }),
-      });
-      const data = await res.json();
-      if (!res.ok) alert(data.error || "PIN 변경에 실패했습니다");
-      else alert(`PIN이 ${newPin}(으)로 변경되었어요`);
-    } catch {
-      alert("네트워크 오류가 발생했습니다");
+    if (!(await deleteChild(child.id))) {
+      alert("삭제하지 못했어요. 다시 시도해주세요.");
+      return;
     }
+    await loadChildren();
+  }
+
+  // 자녀 모드로: 프로필 선택 화면으로 (PIN이 없으면 자녀를 고를 때 PIN부터 정한다)
+  function goChildMode() {
+    if (userId) setParentUnlocked(userId, false);
+    window.location.assign("/profiles");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -326,7 +262,9 @@ export default function ParentPage() {
     router.replace("/login");
   }
 
-  if (authLoading) {
+  if (legacy) return <LegacyStudentNotice />;
+
+  if (authLoading || !gateChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-4xl animate-bounce-slow">📚</div>
@@ -334,7 +272,7 @@ export default function ParentPage() {
     );
   }
 
-  const selectedChild = children.find((c) => c.child_id === selectedChildId)?.child;
+  const selectedChild = children.find((c) => c.id === selectedChildId);
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -348,13 +286,24 @@ export default function ParentPage() {
               <TtsStatusBadge />
             </div>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-            <span className="text-sm font-medium">로그아웃</span>
-          </button>
+          <div className="flex items-center gap-1">
+            {children.length > 0 && (
+              <button
+                onClick={goChildMode}
+                className="flex items-center gap-2 px-4 py-2 text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors"
+              >
+                <Play className="w-5 h-5" />
+                <span className="text-sm font-bold">자녀 모드</span>
+              </button>
+            )}
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="text-sm font-medium">로그아웃</span>
+            </button>
+          </div>
         </div>
 
         {/* Child Selector */}
@@ -365,17 +314,17 @@ export default function ParentPage() {
               <span className="font-medium text-gray-700">자녀 선택</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {children.map((pc) => (
+              {children.map((c) => (
                 <button
-                  key={pc.child_id}
-                  onClick={() => setSelectedChildId(pc.child_id)}
+                  key={c.id}
+                  onClick={() => setSelectedChildId(c.id)}
                   className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                    selectedChildId === pc.child_id
+                    selectedChildId === c.id
                       ? "bg-primary-500 text-white shadow-md"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                   }`}
                 >
-                  {pc.child?.name || pc.child?.email}
+                  {c.name}
                 </button>
               ))}
             </div>
@@ -425,134 +374,104 @@ export default function ParentPage() {
             <form onSubmit={handleCreateChild} className="bg-white rounded-3xl p-6 shadow-md">
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-primary-500" />
-                자녀 계정 만들기
+                자녀 추가
               </h2>
               <p className="text-sm text-gray-500 mb-4">
-                아이는 여기서 만든 <b>아이디</b>와 <b>PIN 4자리</b>로 로그인해요. 이메일이 필요 없어요.
+                아이는 따로 로그인하지 않아요. 이 기기에서 <b>자녀 모드</b>를 누르고 아이 이름을 고르면 공부를 시작해요.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex gap-3">
                 <input
                   type="text"
                   value={childName}
                   onChange={(e) => setChildName(e.target.value)}
                   placeholder="이름 (예: 민준)"
-                  className="input-field"
+                  maxLength={30}
+                  className="input-field flex-1"
                   required
                 />
-                <input
-                  type="text"
-                  value={childLoginId}
-                  onChange={(e) => setChildLoginId(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""))}
-                  placeholder="아이디 (영문·숫자 3~12자)"
-                  maxLength={12}
-                  autoCapitalize="none"
-                  className="input-field"
-                  required
-                />
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={childPin}
-                  onChange={(e) => setChildPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="PIN (숫자 4자리)"
-                  maxLength={4}
-                  className="input-field"
-                  required
-                />
+                <button
+                  type="submit"
+                  disabled={createLoading}
+                  className="btn-primary px-6 whitespace-nowrap disabled:opacity-50"
+                >
+                  {createLoading ? "추가 중..." : "추가"}
+                </button>
               </div>
-              <button
-                type="submit"
-                disabled={createLoading}
-                className="btn-primary w-full mt-4 disabled:opacity-50"
-              >
-                {createLoading ? "만드는 중..." : "계정 만들기"}
-              </button>
               {createError && (
                 <p className="text-red-500 text-sm mt-2">{createError}</p>
               )}
             </form>
 
-            <details className="bg-white rounded-3xl p-6 shadow-md">
-              <summary className="font-bold text-gray-600 cursor-pointer">
-                이메일로 가입한 학생 계정 연결 (기존 방식)
-              </summary>
-              <form onSubmit={handleAddChild} className="mt-4">
-                <div className="flex gap-3">
-                  <input
-                    type="email"
-                    value={childEmail}
-                    onChange={(e) => setChildEmail(e.target.value)}
-                    placeholder="자녀의 이메일"
-                    className="input-field flex-1"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    disabled={linkLoading}
-                    className="btn-primary px-6 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {linkLoading ? "등록 중..." : "연결"}
-                  </button>
-                </div>
-                {linkError && (
-                  <p className="text-red-500 text-sm mt-2">{linkError}</p>
-                )}
-              </form>
-            </details>
-
             <div className="bg-white rounded-3xl p-6 shadow-md">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">등록된 자녀</h2>
+              <h2 className="text-xl font-bold text-gray-800 mb-4">우리 아이들</h2>
               {children.length === 0 ? (
                 <p className="text-gray-400 text-center py-8">
                   아직 등록된 자녀가 없습니다.<br />
-                  위에서 자녀 계정을 만들어주세요.
+                  위에서 자녀를 추가해주세요.
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {children.map((pc) => {
-                    const childIsPin = isStudentEmail(pc.child?.email);
-                    return (
-                      <div key={pc.child_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
-                        <div>
-                          <p className="font-medium text-gray-800">{pc.child?.name}</p>
-                          <p className="text-sm text-gray-500">
-                            {childIsPin
-                              ? `아이디: ${loginIdFromEmail(pc.child!.email)}`
-                              : pc.child?.email}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {childIsPin ? (
-                            <button
-                              onClick={() => handleResetPin(pc.child_id, pc.child?.name || "자녀")}
-                              className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-xl transition-colors"
-                              title="PIN 재설정"
-                            >
-                              <KeyRound className="w-5 h-5" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleConvertToPin(pc.child_id, pc.child?.name || "자녀")}
-                              className="px-3 py-1.5 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors whitespace-nowrap"
-                              title="아이디+PIN 로그인으로 전환 (학습 기록 유지)"
-                            >
-                              PIN 전환
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleRemoveChild(pc.child_id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                            title="목록에서 제거"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
+                  {children.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                      <p className="font-medium text-gray-800">{c.name}</p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleRenameChild(c)}
+                          className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-xl transition-colors"
+                          title="이름 바꾸기"
+                          aria-label={`${c.name} 이름 바꾸기`}
+                        >
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteChild(c)}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                          title="삭제"
+                          aria-label={`${c.name} 삭제`}
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
+
+            <div className="bg-white rounded-3xl p-6 shadow-md">
+              <h2 className="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-primary-500" />
+                부모 PIN
+              </h2>
+              <p className="text-sm text-gray-500 mb-4">
+                자녀 모드에서 이 화면으로 돌아올 때 입력하는 숫자 4자리예요. 아이가 단어 숙제나 설정을 바꾸지 못하게 막아줘요.
+              </p>
+              <div className="flex items-center justify-between">
+                <span className={`text-sm font-medium ${hasPin ? "text-green-600" : "text-orange-500"}`}>
+                  {hasPin ? "설정됨" : "아직 설정하지 않았어요"}
+                </span>
+                <button
+                  onClick={() => setPinDialog(hasPin ? "change" : "setup")}
+                  className="px-4 py-2 text-sm font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors"
+                >
+                  {hasPin ? "PIN 바꾸기" : "PIN 정하기"}
+                </button>
+              </div>
+            </div>
+
+            {pinDialog && (
+              <ParentPinDialog
+                mode={pinDialog}
+                onCancel={() => setPinDialog(null)}
+                onDone={() => {
+                  setPinDialog(null);
+                  setHasPin(true);
+                  // PIN을 막 정한 탭은 잠금 해제 상태로 유지
+                  if (userId) setParentUnlocked(userId, true);
+                  alert("부모 PIN을 저장했어요.");
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -863,7 +782,7 @@ function DailyStatsSection({
 
   // 히트맵 그리드: 7열(요일) x N행, 가장 오래된 날부터
   // 시작 요일을 맞추기 위해 패딩
-  const firstDate = dailyStats[0] ? new Date(dailyStats[0].date) : new Date();
+  const firstDate = dailyStats[0] ? parseLocalDate(dailyStats[0].date) : new Date();
   const startDow = firstDate.getDay(); // 0(일) ~ 6(토)
   const paddedCells: (DailyStats | null)[] = Array(startDow).fill(null).concat(dailyStats);
 

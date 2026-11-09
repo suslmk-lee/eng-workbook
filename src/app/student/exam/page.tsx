@@ -5,10 +5,10 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, ArrowRight, Trophy, Award, Star } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { speakEnglish, initVoices } from "@/lib/speech";
 import { shuffleArray, cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
 
 type QuestionType = "en2kr" | "kr2en" | "typing" | "listening";
@@ -22,7 +22,7 @@ interface ExamQuestion {
 }
 
 function ExamContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -53,7 +53,7 @@ function ExamContent() {
   }, [currentQ, submitted, questions]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words && targetSet.words.length >= 4) {
       setWords(targetSet.words);
@@ -142,18 +142,18 @@ function ExamContent() {
       isCorrect: r.correct,
     }));
     if (records.length > 0) {
-      await saveBatchLearningRecords(records, user?.id);
+      await saveBatchLearningRecords(records, child.id);
     }
 
     const correctCount = results.filter((r) => r.correct).length;
     const accuracy = Math.round((correctCount / results.length) * 100);
 
     if (accuracy === 100) {
-      await addReward("crown", `🎓 오늘의 시험 만점! 완벽해요!`, "exam", user?.id);
+      await addReward("crown", `🎓 오늘의 시험 만점! 완벽해요!`, "exam", child.id);
     } else if (accuracy >= 90) {
-      await addReward("trophy", `🎓 오늘의 시험 ${accuracy}점! 우수!`, "exam", user?.id);
+      await addReward("trophy", `🎓 오늘의 시험 ${accuracy}점! 우수!`, "exam", child.id);
     } else if (accuracy >= 70) {
-      await addReward("star", `🎓 오늘의 시험 ${accuracy}점! 합격!`, "exam", user?.id);
+      await addReward("star", `🎓 오늘의 시험 ${accuracy}점! 합격!`, "exam", child.id);
     }
   }
 

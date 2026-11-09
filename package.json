@@ -4,9 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
+    "dev:local": "sh scripts/dev-local.sh",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:start": "sh scripts/supabase.sh start",
+    "db:stop": "sh scripts/supabase.sh stop",
+    "db:reset": "sh scripts/supabase.sh db reset",
+    "db:status": "sh scripts/supabase.sh status",
+    "db:new": "sh scripts/supabase.sh migration new"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

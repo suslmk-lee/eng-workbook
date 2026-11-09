@@ -5,9 +5,9 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Clock } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { shuffleArray, cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 
 interface Card {
   id: string;
@@ -18,7 +18,7 @@ interface Card {
 }
 
 function MatchingContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -45,7 +45,7 @@ function MatchingContent() {
   }, [gameActive, finished]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -127,13 +127,13 @@ function MatchingContent() {
       moduleType: "matching" as const,
       isCorrect: true,
     }));
-    await saveBatchLearningRecords(records, user?.id);
+    await saveBatchLearningRecords(records, child.id);
 
     const totalPairs = cards.length / 2;
     if (attempts <= totalPairs) {
-      await addReward("trophy", "매칭 게임 최소 시도! 🏆", "matching", user?.id);
+      await addReward("trophy", "매칭 게임 최소 시도! 🏆", "matching", child.id);
     } else {
-      await addReward("star", `매칭 게임 완료 (${attempts}회 시도)! ⭐`, "matching", user?.id);
+      await addReward("star", `매칭 게임 완료 (${attempts}회 시도)! ⭐`, "matching", child.id);
     }
   }
 

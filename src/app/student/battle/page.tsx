@@ -5,10 +5,10 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Heart } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { shuffleArray, cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
 const BOSSES = [
@@ -39,7 +39,7 @@ function HpBar({ hp, maxHp, color }: { hp: number; maxHp: number; color: string 
 }
 
 function BattleContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -69,7 +69,7 @@ function BattleContent() {
   }, [qIndex, words]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words && targetSet.words.length > 0) {
       const shuffled = shuffleArray(targetSet.words);
@@ -99,7 +99,7 @@ function BattleContent() {
     const correct = option === currentWord.english;
     const newResults = [...results, { word: currentWord, correct }];
     setResults(newResults);
-    saveLearningRecord(currentWord.id, "battle", correct, undefined, user?.id);
+    saveLearningRecord(currentWord.id, "battle", correct, undefined, child.id);
 
     let nextBossHp = bossHp;
     let nextPlayerHp = playerHp;
@@ -145,9 +145,9 @@ function BattleContent() {
     const correctCount = finalResults.filter((r) => r.correct).length;
     const total = words.length;
     if (correctCount === total) {
-      await addReward("trophy", "몬스터 배틀 완벽 승리! 🏆", "battle", user?.id);
+      await addReward("trophy", "몬스터 배틀 완벽 승리! 🏆", "battle", child.id);
     } else if (correctCount >= total * 0.8) {
-      await addReward("star", "몬스터 배틀 80% 이상! ⭐", "battle", user?.id);
+      await addReward("star", "몬스터 배틀 80% 이상! ⭐", "battle", child.id);
     }
   }
 

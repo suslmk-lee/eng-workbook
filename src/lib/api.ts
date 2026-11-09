@@ -1,5 +1,70 @@
 import { supabase } from "./supabase";
-import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, ParentChild } from "./types";
+import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child } from "./types";
+import { localMidnight, toLocalDateString } from "./utils";
+
+// ============ 전체 행 조회 (페이지 나눠 읽기) ============
+// Supabase(PostgREST)는 한 번에 최대 1000행(프로젝트 기본 max rows)만 돌려준다.
+// 통계처럼 전체가 필요한 조회는 1000행씩 끝까지 읽는다.
+// 페이지 경계에서 행이 빠지거나 겹치지 않도록, 쿼리 정렬의 마지막은 항상 고유 컬럼(id)으로 할 것.
+const PAGE_SIZE = 1000;
+
+type PageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+async function fetchAllRows<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    if (error) {
+      console.error("fetchAllRows:", error.message);
+      break;
+    }
+    if (!data) break;
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+// ============ 학습 세션 구분 (오늘 점수·날짜별 통계 공통) ============
+// - 배치 모듈: 끝날 때 한 번에 저장 → 같은 세션 기록은 created_at(NOW())이 같음. 시각이 바뀌면 새 세션
+// - 비배치 모듈: 문제마다 저장 → 30초 넘게 비면 새 세션
+const BATCH_MODULES = new Set<string>(["flashcard", "quiz", "matching", "speed", "exam"]);
+const NON_BATCH_GAP_MS = 30 * 1000;
+
+type StatRecord = { module_type: string; is_correct: boolean; created_at: string };
+type SessionTally = { correct: number; total: number };
+
+// created_at 오름차순 기록 → 모듈별 세션 목록
+function groupSessionsByModule(records: StatRecord[]): Record<string, SessionTally[]> {
+  const groups: Record<string, SessionTally[]> = {};
+  const lastTime: Record<string, number> = {};
+
+  for (const r of records) {
+    const mod = r.module_type;
+    const time = new Date(r.created_at).getTime();
+
+    if (!groups[mod]) {
+      groups[mod] = [{ correct: 0, total: 0 }];
+    } else {
+      const newSession = BATCH_MODULES.has(mod)
+        ? time !== lastTime[mod]
+        : time - lastTime[mod] > NON_BATCH_GAP_MS;
+      if (newSession) groups[mod].push({ correct: 0, total: 0 });
+    }
+
+    const cur = groups[mod][groups[mod].length - 1];
+    cur.total++;
+    if (r.is_correct) cur.correct++;
+    lastTime[mod] = time;
+  }
+  return groups;
+}
+
+function sessionScore(s: SessionTally): number {
+  return s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+}
 
 // ============ Profiles & Auth ============
 
@@ -13,43 +78,71 @@ export async function getProfile(userId: string): Promise<Profile | null> {
   return data;
 }
 
-export async function getChildren(parentId: string): Promise<ParentChild[]> {
+// ============ 자녀 프로필 (내 가족) ============
+// RLS가 "내 가족"으로 범위를 제한하므로 별도 필터가 필요 없다.
+
+export async function getChildren(): Promise<Child[]> {
   const { data, error } = await supabase
-    .from("parent_child")
-    .select("*, child:profiles!parent_child_child_id_fkey(*)")
-    .eq("parent_id", parentId);
+    .from("children")
+    .select("*")
+    .order("created_at", { ascending: true });
   if (error) return [];
   return data || [];
 }
 
-export async function linkChild(parentId: string, childEmail: string): Promise<{ error: string | null }> {
-  const { data: childProfile, error: findError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("email", childEmail)
-    .eq("role", "student")
-    .single();
-
-  if (findError || !childProfile) return { error: "해당 이메일의 학생 계정을 찾을 수 없습니다." };
-
-  const { error } = await supabase
-    .from("parent_child")
-    .insert({ parent_id: parentId, child_id: childProfile.id });
-
-  if (error) {
-    if (error.code === "23505") return { error: "이미 등록된 자녀입니다." };
-    return { error: error.message };
-  }
-  return { error: null };
+// 없으면 null, 네트워크 등 조회 실패는 예외 (삭제된 것으로 오해하지 않도록)
+export async function getChild(childId: string): Promise<Child | null> {
+  const { data, error } = await supabase.from("children").select("*").eq("id", childId).maybeSingle();
+  if (error) throw error;
+  return data;
 }
 
-export async function unlinkChild(parentId: string, childId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from("parent_child")
-    .delete()
-    .eq("parent_id", parentId)
-    .eq("child_id", childId);
+export async function createChild(name: string): Promise<{ child: Child | null; error: string | null }> {
+  // family_id는 DB 기본값(내 가족)으로 채워진다
+  const { data, error } = await supabase
+    .from("children")
+    .insert({ name: name.trim() })
+    .select()
+    .single();
+  if (error) return { child: null, error: error.message };
+  return { child: data, error: null };
+}
+
+export async function renameChild(childId: string, name: string): Promise<boolean> {
+  const { error } = await supabase.from("children").update({ name: name.trim() }).eq("id", childId);
   return !error;
+}
+
+// 자녀를 지우면 그 아이의 단어 세트·학습 기록·보상도 함께 삭제된다 (FK CASCADE)
+export async function deleteChild(childId: string): Promise<boolean> {
+  const { error } = await supabase.from("children").delete().eq("id", childId);
+  return !error;
+}
+
+// ============ 부모 PIN (자녀 모드 잠금) ============
+
+export async function hasParentPin(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("has_parent_pin");
+  return !error && data === true;
+}
+
+export async function verifyParentPin(pin: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("verify_parent_pin", { pin });
+  return !error && data === true;
+}
+
+// 이미 PIN이 있으면 currentPin이 필요. PIN 분실 시에는 비밀번호로 다시 로그인한 직후(10분 내)
+// currentPin 없이 바꿀 수 있다.
+export async function setParentPin(
+  newPin: string,
+  currentPin?: string
+): Promise<{ error: "current_pin_required" | "failed" | null }> {
+  const { error } = await supabase.rpc("set_parent_pin", {
+    new_pin: newPin,
+    current_pin: currentPin ?? null,
+  });
+  if (!error) return { error: null };
+  return { error: /current PIN required/i.test(error.message) ? "current_pin_required" : "failed" };
 }
 
 // ============ Word Sets ============
@@ -102,23 +195,6 @@ export async function createWordSet(
   return wordSet;
 }
 
-export async function getWordSets(userId?: string, role?: string): Promise<WordSet[]> {
-  let query = supabase
-    .from("word_sets")
-    .select("*, words(*)")
-    .order("date", { ascending: false });
-
-  if (userId && role === "parent") {
-    query = query.eq("parent_id", userId);
-  } else if (userId && role === "student") {
-    query = query.eq("child_id", userId);
-  }
-
-  const { data, error } = await query;
-  if (error) return [];
-  return data || [];
-}
-
 export async function getWordSetsByChild(childId: string): Promise<WordSet[]> {
   const { data, error } = await supabase
     .from("word_sets")
@@ -128,22 +204,6 @@ export async function getWordSetsByChild(childId: string): Promise<WordSet[]> {
 
   if (error) return [];
   return data || [];
-}
-
-export async function getWordSetByDate(date: string): Promise<WordSet | null> {
-  const { data, error } = await supabase
-    .from("word_sets")
-    .select("*, words(*)")
-    .eq("date", date)
-    .single();
-
-  if (error) return null;
-  return data;
-}
-
-export async function getTodayWordSet(): Promise<WordSet | null> {
-  const today = new Date().toISOString().split("T")[0];
-  return getWordSetByDate(today);
 }
 
 export async function getLatestWordSet(childId?: string): Promise<WordSet | null> {
@@ -226,12 +286,14 @@ export async function getLearningRecords(
 }
 
 export async function getWordStats(wordSetId: string) {
-  const { data, error } = await supabase
-    .from("learning_records")
-    .select("word_id, is_correct, module_type, words!inner(word_set_id, english, korean)")
-    .eq("words.word_set_id", wordSetId);
-
-  if (error || !data) return [];
+  const data = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from("learning_records")
+      .select("word_id, is_correct, module_type, words!inner(word_set_id, english, korean)")
+      .eq("words.word_set_id", wordSetId)
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   const statsMap = new Map<
     string,
@@ -262,23 +324,20 @@ export async function getWordStats(wordSetId: string) {
 function getNextReviewDate(reviewCount: number): string {
   const intervals = [1, 3, 7, 14, 30, 60]; // 일 단위
   const days = intervals[Math.min(reviewCount, intervals.length - 1)];
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString().split("T")[0];
+  return toLocalDateString(localMidnight(days));
 }
 
 export async function getWordsForReview(studentId?: string): Promise<Word[]> {
-  const today = new Date().toISOString().split("T")[0];
+  const today = toLocalDateString();
 
-  let query = supabase
-    .from("review_schedules")
-    .select("*, words(*)")
-    .lte("next_review_date", today);
-
-  if (studentId) query = query.eq("student_id", studentId);
-
-  const { data, error } = await query;
-  if (error || !data) return [];
+  const data = await fetchAllRows<any>((from, to) => {
+    let query = supabase
+      .from("review_schedules")
+      .select("*, words(*)")
+      .lte("next_review_date", today);
+    if (studentId) query = query.eq("student_id", studentId);
+    return query.order("id", { ascending: true }).range(from, to);
+  });
   return data.map((s: any) => s.words).filter(Boolean);
 }
 
@@ -354,68 +413,41 @@ export interface TodayStats {
 }
 
 export async function getTodayStats(studentId: string): Promise<TodayStats> {
-  const today = new Date().toISOString().split("T")[0];
-  const todayStart = `${today}T00:00:00.000Z`;
-  const todayEnd = `${today}T23:59:59.999Z`;
+  // 오늘 = 기기 현지 시간 0시 ~ 내일 0시
+  const todayStart = localMidnight(0).toISOString();
+  const tomorrowStart = localMidnight(1).toISOString();
 
-  const [{ data: records }, { data: rewards }] = await Promise.all([
-    supabase
-      .from("learning_records")
-      .select("word_id, module_type, is_correct, created_at")
-      .eq("student_id", studentId)
-      .gte("created_at", todayStart)
-      .lte("created_at", todayEnd)
-      .order("created_at", { ascending: true }),
+  const [records, { count: rewardCount }] = await Promise.all([
+    fetchAllRows<StatRecord>((from, to) =>
+      supabase
+        .from("learning_records")
+        .select("module_type, is_correct, created_at")
+        .eq("student_id", studentId)
+        .gte("created_at", todayStart)
+        .lt("created_at", tomorrowStart)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
     supabase
       .from("rewards")
-      .select("id", { count: "exact" })
+      .select("id", { count: "exact", head: true })
       .eq("student_id", studentId)
       .gte("earned_at", todayStart)
-      .lte("earned_at", todayEnd),
+      .lt("earned_at", tomorrowStart),
   ]);
 
-  if (!records || records.length === 0) {
-    return { totalScore: 0, moduleStats: {}, totalSessions: 0, rewardCount: rewards?.length || 0 };
+  if (records.length === 0) {
+    return { totalScore: 0, moduleStats: {}, totalSessions: 0, rewardCount: rewardCount || 0 };
   }
 
-  // 세션 구분 로직:
-  // - 배치 모듈 (flashcard/quiz/matching/speed): 같은 트랜잭션은 같은 타임스탬프(NOW())이므로
-  //   같은 모듈 내에서 타임스탬프가 달라지면 새 세션
-  // - 비배치 모듈 (spelling/scramble/listening): 30초 이상 간격이면 새 세션
-  const BATCH_MODULES = new Set(["flashcard", "quiz", "matching", "speed"]);
-  const NON_BATCH_GAP_MS = 30 * 1000;
-  const moduleGroups: Record<string, { correct: number; total: number }[]> = {};
-  const moduleLastTime: Record<string, number> = {};
-
-  for (const r of records) {
-    const mod = r.module_type as string;
-    const time = new Date(r.created_at).getTime();
-
-    if (!moduleGroups[mod]) {
-      moduleGroups[mod] = [{ correct: 0, total: 0 }];
-    } else {
-      const lastTime = moduleLastTime[mod];
-      const isBatch = BATCH_MODULES.has(mod);
-      const shouldStartNewSession = isBatch
-        ? time !== lastTime
-        : time - lastTime > NON_BATCH_GAP_MS;
-      if (shouldStartNewSession) {
-        moduleGroups[mod].push({ correct: 0, total: 0 });
-      }
-    }
-
-    const cur = moduleGroups[mod][moduleGroups[mod].length - 1];
-    cur.total++;
-    if (r.is_correct) cur.correct++;
-    moduleLastTime[mod] = time;
-  }
-
+  const moduleGroups = groupSessionsByModule(records);
   const moduleStats: Record<string, ModuleSessionStat> = {};
   let weightedScoreSum = 0;
   let totalSessions = 0;
 
   for (const [mod, sessions] of Object.entries(moduleGroups)) {
-    const scores = sessions.map((s) => (s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0));
+    const scores = sessions.map(sessionScore);
     const best = Math.max(...scores);
     const last = scores[scores.length - 1];
     moduleStats[mod] = {
@@ -438,7 +470,7 @@ export async function getTodayStats(studentId: string): Promise<TodayStats> {
     totalScore,
     moduleStats,
     totalSessions,
-    rewardCount: rewards?.length || 0,
+    rewardCount: rewardCount || 0,
   };
 }
 
@@ -461,143 +493,106 @@ export interface DailyStats {
 }
 
 export async function getDailyStatsRange(studentId: string, days: number): Promise<DailyStats[]> {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days + 1);
-  start.setHours(0, 0, 0, 0);
+  // (days-1)일 전 현지 0시 ~ 내일 현지 0시
+  const start = localMidnight(-(days - 1));
   const startISO = start.toISOString();
-  const endISO = new Date(end.getTime() + 86400000).toISOString();
+  const endISO = localMidnight(1).toISOString();
 
-  const [{ data: records }, { data: rewards }] = await Promise.all([
-    supabase
-      .from("learning_records")
-      .select("module_type, is_correct, created_at")
-      .eq("student_id", studentId)
-      .gte("created_at", startISO)
-      .lte("created_at", endISO)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("rewards")
-      .select("id, earned_at")
-      .eq("student_id", studentId)
-      .gte("earned_at", startISO)
-      .lte("earned_at", endISO),
+  const [records, rewards] = await Promise.all([
+    fetchAllRows<StatRecord>((from, to) =>
+      supabase
+        .from("learning_records")
+        .select("module_type, is_correct, created_at")
+        .eq("student_id", studentId)
+        .gte("created_at", startISO)
+        .lt("created_at", endISO)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
+    fetchAllRows<{ earned_at: string }>((from, to) =>
+      supabase
+        .from("rewards")
+        .select("id, earned_at")
+        .eq("student_id", studentId)
+        .gte("earned_at", startISO)
+        .lt("earned_at", endISO)
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
   ]);
 
-  const BATCH_MODULES = new Set(["flashcard", "quiz", "matching", "speed", "exam"]);
-  const NON_BATCH_GAP_MS = 30 * 1000;
-
-  // 각 날짜 초기화
-  const byDate: Record<string, {
-    date: string;
-    totalRecords: number;
-    correctRecords: number;
-    moduleGroups: Record<string, { correct: number; total: number }[]>;
-    moduleLastTime: Record<string, number>;
-    rewardCount: number;
-  }> = {};
-
+  // 현지 날짜별로 나누기 (오래된 날 → 오늘)
+  const dates: string[] = [];
   for (let i = 0; i < days; i++) {
     const d = new Date(start);
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split("T")[0];
-    byDate[dateStr] = {
-      date: dateStr,
-      totalRecords: 0,
-      correctRecords: 0,
-      moduleGroups: {},
-      moduleLastTime: {},
-      rewardCount: 0,
-    };
+    dates.push(toLocalDateString(d));
+  }
+  const recordsByDate = new Map<string, StatRecord[]>(dates.map((d) => [d, []]));
+  for (const r of records) {
+    recordsByDate.get(toLocalDateString(new Date(r.created_at)))?.push(r);
+  }
+  const rewardsByDate = new Map<string, number>();
+  for (const reward of rewards) {
+    const date = toLocalDateString(new Date(reward.earned_at));
+    rewardsByDate.set(date, (rewardsByDate.get(date) ?? 0) + 1);
   }
 
-  // 레코드 집계 (배치/비배치 모듈 세션 구분)
-  for (const r of records || []) {
-    const dateStr = (r.created_at as string).split("T")[0];
-    if (!byDate[dateStr]) continue;
-    const day = byDate[dateStr];
-    const mod = r.module_type as string;
-    const time = new Date(r.created_at as string).getTime();
+  return dates.map((date) => {
+    const dayRecords = recordsByDate.get(date) ?? [];
+    const correctRecords = dayRecords.filter((r) => r.is_correct).length;
+    const moduleStats: Record<string, DailyModuleStat> = {};
+    let examBestScore: number | null = null;
 
-    day.totalRecords++;
-    if (r.is_correct) day.correctRecords++;
-
-    if (!day.moduleGroups[mod]) {
-      day.moduleGroups[mod] = [{ correct: 0, total: 0 }];
-    } else {
-      const lastTime = day.moduleLastTime[mod];
-      const isBatch = BATCH_MODULES.has(mod);
-      const newSession = isBatch ? time !== lastTime : time - lastTime > NON_BATCH_GAP_MS;
-      if (newSession) day.moduleGroups[mod].push({ correct: 0, total: 0 });
-    }
-    const cur = day.moduleGroups[mod][day.moduleGroups[mod].length - 1];
-    cur.total++;
-    if (r.is_correct) cur.correct++;
-    day.moduleLastTime[mod] = time;
-  }
-
-  // 보상 집계
-  for (const reward of rewards || []) {
-    const dateStr = (reward.earned_at as string).split("T")[0];
-    if (byDate[dateStr]) byDate[dateStr].rewardCount++;
-  }
-
-  // 최종 변환
-  return Object.values(byDate)
-    .map((day) => {
-      const moduleStats: Record<string, DailyModuleStat> = {};
-      let examBestScore: number | null = null;
-
-      for (const [mod, sessions] of Object.entries(day.moduleGroups)) {
-        const totalCorrect = sessions.reduce((s, x) => s + x.correct, 0);
-        const totalAttempts = sessions.reduce((s, x) => s + x.total, 0);
-        const sessionScores = sessions.map((s) => (s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0));
-        const bestScore = sessionScores.length > 0 ? Math.max(...sessionScores) : 0;
-        moduleStats[mod] = {
-          sessions: sessions.length,
-          accuracy: totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0,
-          bestScore,
-        };
-        if (mod === "exam") examBestScore = bestScore;
-      }
-
-      return {
-        date: day.date,
-        totalRecords: day.totalRecords,
-        correctRecords: day.correctRecords,
-        accuracy: day.totalRecords > 0 ? Math.round((day.correctRecords / day.totalRecords) * 100) : 0,
-        moduleStats,
-        examBestScore,
-        rewardCount: day.rewardCount,
+    for (const [mod, sessions] of Object.entries(groupSessionsByModule(dayRecords))) {
+      const totalCorrect = sessions.reduce((s, x) => s + x.correct, 0);
+      const totalAttempts = sessions.reduce((s, x) => s + x.total, 0);
+      const bestScore = Math.max(...sessions.map(sessionScore));
+      moduleStats[mod] = {
+        sessions: sessions.length,
+        accuracy: totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0,
+        bestScore,
       };
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
+      if (mod === "exam") examBestScore = bestScore;
+    }
+
+    return {
+      date,
+      totalRecords: dayRecords.length,
+      correctRecords,
+      accuracy: dayRecords.length > 0 ? Math.round((correctRecords / dayRecords.length) * 100) : 0,
+      moduleStats,
+      examBestScore,
+      rewardCount: rewardsByDate.get(date) ?? 0,
+    };
+  });
 }
 
 // ============ Dashboard Stats ============
 
-export async function getDashboardStats(parentId?: string, childId?: string) {
-  let setsQuery = supabase.from("word_sets").select("id, date").order("date", { ascending: false });
-  if (parentId) setsQuery = setsQuery.eq("parent_id", parentId);
-  if (childId) setsQuery = setsQuery.eq("child_id", childId);
-  const { data: wordSets } = await setsQuery;
+// 한 자녀 기준 (가족의 어느 학부모가 등록한 단어 세트든 모두 포함)
+export async function getDashboardStats(childId: string) {
+  const [{ count: totalSets }, records, { count: rewardCount }] = await Promise.all([
+    supabase.from("word_sets").select("id", { count: "exact", head: true }).eq("child_id", childId),
+    fetchAllRows<{ is_correct: boolean; module_type: string }>((from, to) =>
+      supabase
+        .from("learning_records")
+        .select("is_correct, module_type")
+        .eq("student_id", childId)
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
+    supabase.from("rewards").select("id", { count: "exact", head: true }).eq("student_id", childId),
+  ]);
 
-  let recordsQuery = supabase.from("learning_records").select("is_correct, created_at, module_type");
-  if (childId) recordsQuery = recordsQuery.eq("student_id", childId);
-  const { data: records } = await recordsQuery;
-
-  let rewardsQuery = supabase.from("rewards").select("*", { count: "exact", head: true });
-  if (childId) rewardsQuery = rewardsQuery.eq("student_id", childId);
-  const { count: rewardCount } = await rewardsQuery;
-
-  const totalSets = wordSets?.length || 0;
-  const totalRecords = records?.length || 0;
-  const correctRecords = records?.filter((r) => r.is_correct).length || 0;
+  const totalRecords = records.length;
+  const correctRecords = records.filter((r) => r.is_correct).length;
   const accuracy = totalRecords > 0 ? Math.round((correctRecords / totalRecords) * 100) : 0;
 
   // 모듈별 통계
   const moduleStats: Record<string, { total: number; correct: number }> = {};
-  records?.forEach((r) => {
+  records.forEach((r) => {
     if (!moduleStats[r.module_type]) {
       moduleStats[r.module_type] = { total: 0, correct: 0 };
     }
@@ -606,7 +601,7 @@ export async function getDashboardStats(parentId?: string, childId?: string) {
   });
 
   return {
-    totalSets,
+    totalSets: totalSets || 0,
     totalRecords,
     correctRecords,
     accuracy,
