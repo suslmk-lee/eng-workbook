@@ -55,21 +55,61 @@ npm install
 npm run dev
 ```
 
-## Supabase 설정
+## 로컬 개발 (로컬 Supabase)
+
+내 컴퓨터에 Supabase(DB·로그인·API)를 띄워 운영 DB를 건드리지 않고 개발·시험합니다.
+[Docker Desktop](https://www.docker.com/products/docker-desktop/)이 설치·실행돼 있어야 합니다.
+
+```bash
+npm run db:start    # 로컬 Supabase 시작 (처음엔 이미지 내려받느라 몇 분). DB 구조 + 테스트 데이터 자동 적용
+npm run dev:local   # 로컬 Supabase에 붙여 앱 실행 → http://localhost:3000
+```
+
+- 테스트 계정: `mom@test.local` / `pass1234` (엄마), `dad@test.local` / `pass1234` (아빠, 같은 가족)
+- DB 데이터는 Studio(http://127.0.0.1:54323)에서 표로 볼 수 있습니다.
+- `npm run dev`는 지금처럼 `.env.local`(운영 Supabase)을 그대로 씁니다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `npm run db:start` / `db:stop` | 로컬 Supabase 켜기 / 끄기 (꺼도 데이터는 남음) |
+| `npm run db:reset` | DB를 비우고 마이그레이션 + 테스트 데이터를 처음부터 다시 적용 |
+| `npm run db:status` | 주소·키 확인 |
+| `npm run db:new <이름>` | 새 마이그레이션 파일 만들기 (`supabase/migrations/`) |
+
+### 폴더 구조
+
+```
+supabase/
+├─ config.toml        로컬 Supabase 설정 (안 쓰는 realtime·edge functions·로그 분석은 꺼 둠)
+├─ migrations/        DB 변경 이력. 파일명 앞 숫자(시각) 순서로 적용
+│  ├─ 20260530181907_initial_schema.sql   단어·학습 기록 테이블
+│  ├─ 20260530181908_auth.sql             학부모/학생 계정 (옛 구조)
+│  ├─ 20260602074419_tts_storage.sql      발음 mp3 저장 버킷
+│  ├─ 20261109074851_security.sql         보안 정책 정비 (0단계)
+│  └─ 20261109211038_family.sql           학부모 계정 + 자녀 프로필 (2단계)
+├─ rollback/          비상용 되돌리기 SQL (자동 적용되지 않음)
+└─ seed.sql           로컬 테스트 데이터 (운영에서는 실행 금지)
+```
+
+DB를 바꿀 때는 `npm run db:new 설명`으로 새 파일을 만들어 SQL을 쓰고, `npm run db:reset`으로 로컬에서 확인한 뒤 운영에 적용합니다.
+
+## 운영 Supabase 설정
 
 1. [Supabase](https://supabase.com)에서 프로젝트 생성
 2. `.env.local.example`을 `.env.local`로 복사 후 키 입력
-3. Supabase SQL Editor에서 아래 순서로 실행
-   1. `src/lib/supabase-schema.sql` (테이블)
-   2. `src/lib/supabase-migration-auth.sql` (인증·학부모/자녀)
-   3. `src/lib/supabase-migration-security.sql` (보안 정책 정비 — **기존 DB에도 반드시 실행**)
-   4. `src/lib/supabase-migration-family.sql` (학부모 계정 + 자녀 프로필 구조 — **기존 DB에도 반드시 실행**)
-      - 문제가 생기면 `src/lib/supabase-migration-family-rollback.sql` → 3번 재실행 → 이전 배포로 되돌리기
+3. Supabase SQL Editor에서 `supabase/migrations/`의 파일을 **이름 순서대로** 실행
 
 ```bash
 cp .env.local.example .env.local
 # .env.local 파일에 Supabase URL과 ANON KEY 입력
 ```
+
+**현재 운영 DB 적용 현황 (2026-11-09):** `20261109074851_security.sql`까지 적용됨.
+`20261109211038_family.sql`은 계정 구조 개편 배포 직후에 실행해야 합니다.
+문제가 생기면 `supabase/rollback/20261109211038_family_rollback.sql` → `20261109074851_security.sql` 재실행 → Vercel 이전 배포로 되돌리기.
+
+> 운영 DB는 지금까지 SQL Editor로 직접 적용해 왔기 때문에, 나중에 `supabase db push`로 바꾸려면
+> 먼저 `supabase migration repair --status applied <버전>`으로 이미 적용된 파일을 표시해야 합니다.
 
 ## 음성 발음 (TTS) 설정
 
@@ -84,7 +124,7 @@ cp .env.local.example .env.local
 
 캐싱 모드 설정:
 
-1. `src/lib/supabase-tts-storage.sql`을 Supabase SQL Editor에서 실행 (public `tts` 버킷 생성)
+1. `supabase/migrations/20260602074419_tts_storage.sql`을 Supabase SQL Editor에서 실행 (public `tts` 버킷 생성)
 2. `.env.local`에 키 추가:
    - `OPENAI_API_KEY` — https://platform.openai.com/api-keys
    - `SUPABASE_SERVICE_ROLE_KEY` — Supabase 프로젝트 Settings > API > service_role
