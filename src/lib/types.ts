@@ -8,13 +8,13 @@ export interface Profile {
   created_at: string;
 }
 
-export interface ParentChild {
+// 자녀 프로필: 로그인 계정이 아니라 가족(families)에 속한 프로필.
+// 부모가 로그인한 기기에서 프로필을 골라 "자녀 모드"로 학습한다.
+export interface Child {
   id: string;
-  parent_id: string;
-  child_id: string;
+  family_id: string;
+  name: string;
   created_at: string;
-  child?: Profile;
-  parent?: Profile;
 }
 
 export interface Word {

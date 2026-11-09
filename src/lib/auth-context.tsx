@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Profile } from "./types";
+import { clearChildModeState } from "./child-mode";
 
 const PROFILE_CACHE_KEY = "ew_profile_v1";
 
@@ -179,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     writeCachedProfile(null);
+    clearChildModeState();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
@@ -200,4 +202,12 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+// 계정 구조 개편 전의 학생 로그인 계정(아이디+PIN)으로 로그인된 세션인지.
+// 이런 세션은 더 이상 쓸 수 없으므로 부모 계정으로 다시 로그인하도록 안내한다.
+export function isLegacyStudent(user: User | null, profile: Profile | null): boolean {
+  if (!user) return false;
+  const role = profile?.role ?? (user.user_metadata?.role as string | undefined);
+  return role === "student";
 }

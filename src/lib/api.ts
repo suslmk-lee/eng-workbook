@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, ParentChild } from "./types";
+import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child } from "./types";
 import { localMidnight, toLocalDateString } from "./utils";
 
 // ============ 전체 행 조회 (페이지 나눠 읽기) ============
@@ -78,25 +78,71 @@ export async function getProfile(userId: string): Promise<Profile | null> {
   return data;
 }
 
-export async function getChildren(parentId: string): Promise<ParentChild[]> {
+// ============ 자녀 프로필 (내 가족) ============
+// RLS가 "내 가족"으로 범위를 제한하므로 별도 필터가 필요 없다.
+
+export async function getChildren(): Promise<Child[]> {
   const { data, error } = await supabase
-    .from("parent_child")
-    .select("*, child:profiles!parent_child_child_id_fkey(*)")
-    .eq("parent_id", parentId);
+    .from("children")
+    .select("*")
+    .order("created_at", { ascending: true });
   if (error) return [];
   return data || [];
 }
 
-// 자녀 연결은 서버(/api/children)에서만 만든다. 클라이언트에서 임의로 연결하면
-// 남의 아이 계정의 PIN을 재설정할 수 있어 제거함 (supabase-migration-security.sql 참고).
+// 없으면 null, 네트워크 등 조회 실패는 예외 (삭제된 것으로 오해하지 않도록)
+export async function getChild(childId: string): Promise<Child | null> {
+  const { data, error } = await supabase.from("children").select("*").eq("id", childId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
 
-export async function unlinkChild(parentId: string, childId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from("parent_child")
-    .delete()
-    .eq("parent_id", parentId)
-    .eq("child_id", childId);
+export async function createChild(name: string): Promise<{ child: Child | null; error: string | null }> {
+  // family_id는 DB 기본값(내 가족)으로 채워진다
+  const { data, error } = await supabase
+    .from("children")
+    .insert({ name: name.trim() })
+    .select()
+    .single();
+  if (error) return { child: null, error: error.message };
+  return { child: data, error: null };
+}
+
+export async function renameChild(childId: string, name: string): Promise<boolean> {
+  const { error } = await supabase.from("children").update({ name: name.trim() }).eq("id", childId);
   return !error;
+}
+
+// 자녀를 지우면 그 아이의 단어 세트·학습 기록·보상도 함께 삭제된다 (FK CASCADE)
+export async function deleteChild(childId: string): Promise<boolean> {
+  const { error } = await supabase.from("children").delete().eq("id", childId);
+  return !error;
+}
+
+// ============ 부모 PIN (자녀 모드 잠금) ============
+
+export async function hasParentPin(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("has_parent_pin");
+  return !error && data === true;
+}
+
+export async function verifyParentPin(pin: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("verify_parent_pin", { pin });
+  return !error && data === true;
+}
+
+// 이미 PIN이 있으면 currentPin이 필요. PIN 분실 시에는 비밀번호로 다시 로그인한 직후(10분 내)
+// currentPin 없이 바꿀 수 있다.
+export async function setParentPin(
+  newPin: string,
+  currentPin?: string
+): Promise<{ error: "current_pin_required" | "failed" | null }> {
+  const { error } = await supabase.rpc("set_parent_pin", {
+    new_pin: newPin,
+    current_pin: currentPin ?? null,
+  });
+  if (!error) return { error: null };
+  return { error: /current PIN required/i.test(error.message) ? "current_pin_required" : "failed" };
 }
 
 // ============ Word Sets ============
@@ -149,23 +195,6 @@ export async function createWordSet(
   return wordSet;
 }
 
-export async function getWordSets(userId?: string, role?: string): Promise<WordSet[]> {
-  let query = supabase
-    .from("word_sets")
-    .select("*, words(*)")
-    .order("date", { ascending: false });
-
-  if (userId && role === "parent") {
-    query = query.eq("parent_id", userId);
-  } else if (userId && role === "student") {
-    query = query.eq("child_id", userId);
-  }
-
-  const { data, error } = await query;
-  if (error) return [];
-  return data || [];
-}
-
 export async function getWordSetsByChild(childId: string): Promise<WordSet[]> {
   const { data, error } = await supabase
     .from("word_sets")
@@ -175,21 +204,6 @@ export async function getWordSetsByChild(childId: string): Promise<WordSet[]> {
 
   if (error) return [];
   return data || [];
-}
-
-export async function getWordSetByDate(date: string): Promise<WordSet | null> {
-  const { data, error } = await supabase
-    .from("word_sets")
-    .select("*, words(*)")
-    .eq("date", date)
-    .single();
-
-  if (error) return null;
-  return data;
-}
-
-export async function getTodayWordSet(): Promise<WordSet | null> {
-  return getWordSetByDate(toLocalDateString());
 }
 
 export async function getLatestWordSet(childId?: string): Promise<WordSet | null> {
@@ -557,23 +571,21 @@ export async function getDailyStatsRange(studentId: string, days: number): Promi
 
 // ============ Dashboard Stats ============
 
-export async function getDashboardStats(parentId?: string, childId?: string) {
-  let setsQuery = supabase.from("word_sets").select("id, date").order("date", { ascending: false });
-  if (parentId) setsQuery = setsQuery.eq("parent_id", parentId);
-  if (childId) setsQuery = setsQuery.eq("child_id", childId);
-  const { data: wordSets } = await setsQuery;
+// 한 자녀 기준 (가족의 어느 학부모가 등록한 단어 세트든 모두 포함)
+export async function getDashboardStats(childId: string) {
+  const [{ count: totalSets }, records, { count: rewardCount }] = await Promise.all([
+    supabase.from("word_sets").select("id", { count: "exact", head: true }).eq("child_id", childId),
+    fetchAllRows<{ is_correct: boolean; module_type: string }>((from, to) =>
+      supabase
+        .from("learning_records")
+        .select("is_correct, module_type")
+        .eq("student_id", childId)
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
+    supabase.from("rewards").select("id", { count: "exact", head: true }).eq("student_id", childId),
+  ]);
 
-  const records = await fetchAllRows<{ is_correct: boolean; module_type: string }>((from, to) => {
-    let query = supabase.from("learning_records").select("is_correct, module_type");
-    if (childId) query = query.eq("student_id", childId);
-    return query.order("id", { ascending: true }).range(from, to);
-  });
-
-  let rewardsQuery = supabase.from("rewards").select("*", { count: "exact", head: true });
-  if (childId) rewardsQuery = rewardsQuery.eq("student_id", childId);
-  const { count: rewardCount } = await rewardsQuery;
-
-  const totalSets = wordSets?.length || 0;
   const totalRecords = records.length;
   const correctRecords = records.filter((r) => r.is_correct).length;
   const accuracy = totalRecords > 0 ? Math.round((correctRecords / totalRecords) * 100) : 0;
@@ -589,7 +601,7 @@ export async function getDashboardStats(parentId?: string, childId?: string) {
   });
 
   return {
-    totalSets,
+    totalSets: totalSets || 0,
     totalRecords,
     correctRecords,
     accuracy,

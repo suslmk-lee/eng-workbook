@@ -5,14 +5,14 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Check, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
 import { scrambleWord, cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
 function ScrambleContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -39,7 +39,7 @@ function ScrambleContent() {
   }, [currentIndex, words]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -59,7 +59,7 @@ function ScrambleContent() {
       const correct = newAnswer.join("") === words[currentIndex].english;
       setIsCorrect(correct);
       setResults([...results, { word: words[currentIndex], correct }]);
-      saveLearningRecord(words[currentIndex].id, "scramble", correct, undefined, user?.id);
+      saveLearningRecord(words[currentIndex].id, "scramble", correct, undefined, child.id);
       const newCombo = correct ? combo + 1 : 0;
       setCombo(newCombo);
       setFeedback({ show: true, isCorrect: correct });
@@ -97,9 +97,9 @@ function ScrambleContent() {
     setFinished(true);
     const correctCount = results.filter((r) => r.correct).length;
     if (correctCount === words.length) {
-      await addReward("trophy", "스크램블 만점! 🏆", "scramble", user?.id);
+      await addReward("trophy", "스크램블 만점! 🏆", "scramble", child.id);
     } else if (correctCount >= words.length * 0.8) {
-      await addReward("star", "스크램블 80% 이상! ⭐", "scramble", user?.id);
+      await addReward("star", "스크램블 80% 이상! ⭐", "scramble", child.id);
     }
   }
 

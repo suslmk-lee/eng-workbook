@@ -5,9 +5,9 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Zap, Clock } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { shuffleArray, cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
@@ -18,7 +18,7 @@ interface SpeedQuestion {
 }
 
 function SpeedContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -50,7 +50,7 @@ function SpeedContent() {
   }, [timeLeft, gameState]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -136,13 +136,13 @@ function SpeedContent() {
       isCorrect: r.correct,
     }));
     if (records.length > 0) {
-      await saveBatchLearningRecords(records, user?.id);
+      await saveBatchLearningRecords(records, child.id);
     }
 
     if (score >= 20) {
-      await addReward("trophy", `스피드 퀴즈 ${score}점! 🏆`, "speed", user?.id);
+      await addReward("trophy", `스피드 퀴즈 ${score}점! 🏆`, "speed", child.id);
     } else if (score >= 10) {
-      await addReward("star", `스피드 퀴즈 ${score}점! ⭐`, "speed", user?.id);
+      await addReward("star", `스피드 퀴즈 ${score}점! ⭐`, "speed", child.id);
     }
   }
 

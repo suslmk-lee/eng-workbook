@@ -5,8 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, Trophy } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveBatchLearningRecords, addReward } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
+import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { useActiveChild } from "@/lib/child-mode";
 import { shuffleArray } from "@/lib/utils";
 import { speakEnglish } from "@/lib/speech";
 import AnswerFeedback from "@/components/AnswerFeedback";
@@ -22,7 +22,7 @@ interface QuizQuestion {
 function QuizContent() {
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
-  const { user } = useAuth();
+  const child = useActiveChild();
   const [words, setWords] = useState<Word[]>([]);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentQ, setCurrentQ] = useState(0);
@@ -39,7 +39,7 @@ function QuizContent() {
   }, [setId]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -111,13 +111,13 @@ function QuizContent() {
       moduleType: "quiz" as const,
       isCorrect: finalResults[i],
     }));
-    await saveBatchLearningRecords(records, user?.id);
+    await saveBatchLearningRecords(records, child.id);
 
     const correctCount = finalResults.filter(Boolean).length;
     if (correctCount === questions.length) {
-      await addReward("trophy", "4지선다 퀴즈 만점! 🏆", "quiz", user?.id);
+      await addReward("trophy", "4지선다 퀴즈 만점! 🏆", "quiz", child.id);
     } else if (correctCount >= questions.length * 0.8) {
-      await addReward("star", "4지선다 퀴즈 80% 이상! ⭐", "quiz", user?.id);
+      await addReward("star", "4지선다 퀴즈 80% 이상! ⭐", "quiz", child.id);
     }
   }
 
