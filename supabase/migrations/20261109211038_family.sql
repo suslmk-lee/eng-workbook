@@ -2,7 +2,7 @@
 -- 계정 구조 개편 (2단계): 학부모 계정 + 자녀 프로필
 -- Supabase SQL Editor에서 파일 전체를 한 번에 실행하세요.
 -- 하나의 트랜잭션이라 중간에 실패하면 아무것도 바뀌지 않고, 여러 번 실행해도 결과가 같습니다.
--- 먼저 supabase-migration-security.sql이 적용되어 있어야 합니다.
+-- 먼저 supabase/migrations/20261109074851_security.sql이 적용되어 있어야 합니다.
 --
 -- 바뀌는 것
 --  - 아이는 더 이상 로그인 계정이 아니라, 가족(families)에 속한 "자녀 프로필"(children)
@@ -16,7 +16,7 @@
 --  - 학습 데이터의 FK를 profiles → children으로 옮김. 기존 학생 로그인 계정은 지우지 않음
 --  - 어느 부모와도 연결되지 않은 옛 기록은 지우지 않고 그대로 둠(접근만 불가)
 --
--- 문제가 생기면 supabase-migration-family-rollback.sql 참고
+-- 문제가 생기면 supabase/rollback/20261109211038_family_rollback.sql 참고
 -- =============================================
 
 BEGIN;

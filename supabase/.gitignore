@@ -1,0 +1,6 @@
+# Supabase CLI 로컬 상태
+.branches
+.temp
+.env.keys
+.env.local
+.env.*.local

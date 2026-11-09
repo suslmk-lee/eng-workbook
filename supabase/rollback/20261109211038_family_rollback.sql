@@ -1,10 +1,10 @@
 -- =============================================
--- 계정 구조 개편(supabase-migration-family.sql) 되돌리기 — 비상용
+-- 계정 구조 개편(supabase/migrations/20261109211038_family.sql) 되돌리기 — 비상용
 -- 개편 직후 문제가 생겼을 때만 쓰세요.
 --
 -- 순서
 --  1. 이 파일 실행
---  2. supabase-migration-security.sql 다시 실행 (0단계 보안 정책 복원)
+--  2. supabase/migrations/20261109074851_security.sql 다시 실행 (0단계 보안 정책 복원)
 --  3. Vercel에서 개편 이전 배포로 되돌리기 (Deployments → 이전 배포 → Promote to Production)
 --
 -- 개편 후에 새로 만든 자녀 프로필·학습 기록은 옛 구조(학생 로그인 계정)에 대응되는
@@ -74,4 +74,4 @@ END $$;
 
 COMMIT;
 
--- 이어서 supabase-migration-security.sql을 실행하세요.
+-- 이어서 supabase/migrations/20261109074851_security.sql을 실행하세요.

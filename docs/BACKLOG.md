@@ -9,7 +9,7 @@
 
 1. **Storage 캐싱 활성화** — 코드 변경 없음, 효과 최대
    - Vercel production에 `SUPABASE_SERVICE_ROLE_KEY` 추가 후 재배포
-   - Supabase에 `tts` 버킷 없으면 `src/lib/supabase-tts-storage.sql` 실행
+   - Supabase에 `tts` 버킷 없으면 `supabase/migrations/20260602074419_tts_storage.sql` 실행
    - 단어당 최초 1회만 생성, 이후 CDN 재생(~0.1~0.3초)
    ```bash
    npx vercel env add SUPABASE_SERVICE_ROLE_KEY production
