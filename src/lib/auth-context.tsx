@@ -181,7 +181,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     writeCachedProfile(null);
     clearChildModeState();
-    await supabase.auth.signOut();
+    // 이 기기만 로그아웃. 기본값(global)은 같은 부모 계정으로 자녀 모드 중인
+    // 아이 기기까지 모두 로그아웃시킨다.
+    await supabase.auth.signOut({ scope: "local" });
     setUser(null);
     setProfile(null);
     setSession(null);
