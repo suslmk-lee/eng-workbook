@@ -22,8 +22,17 @@ import {
   Mic,
   Swords,
 } from "lucide-react";
-import { WordSet, MODULE_LIST, ModuleInfo, ModuleType } from "@/lib/types";
-import { ensureTodayLesson, getWordSetsByChild, getTodayStats, TodayStats } from "@/lib/api";
+import { WordSet, Child, MODULE_LIST, ModuleInfo, ModuleType, THEME_EMOJI } from "@/lib/types";
+import {
+  ensureTodayLesson,
+  getWordSetsByChild,
+  getTodayStats,
+  TodayStats,
+  getChild,
+  getDictionary,
+  getLearnedWords,
+  createThemeLesson,
+} from "@/lib/api";
 import { getTodayString, formatDateShort } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import TtsModeToggle from "@/components/TtsModeToggle";
@@ -89,12 +98,14 @@ function SetChoice({
   emoji,
   title,
   detail,
+  note,
 }: {
   selected: boolean;
   onClick: () => void;
   emoji: string;
   title: string;
   detail: string;
+  note?: string;  // 오늘의 학습 자동 조절 이유
 }) {
   return (
     <button
@@ -108,6 +119,9 @@ function SetChoice({
       <span className="min-w-0">
         <span className="block font-bold truncate">{title}</span>
         <span className={`block text-sm ${selected ? "text-blue-100" : "text-gray-500"}`}>{detail}</span>
+        {note && (
+          <span className={`block text-xs mt-0.5 ${selected ? "text-blue-200" : "text-gray-400"}`}>{note}</span>
+        )}
       </span>
     </button>
   );
@@ -116,16 +130,34 @@ function SetChoice({
 // 학습 모듈에 다녀와도 고른 단어 세트가 유지되도록 (탭을 닫으면 초기화)
 const selectedSetKey = (childId: string) => `ew_selected_set_v1:${childId}`;
 
+const placementLaterKey = (childId: string) => `ew_placement_later_v1:${childId}`;
+
 function setLabel(set: WordSet): string {
   return set.source === "auto" ? "오늘의 학습" : set.title || "숙제";
 }
 
+function setEmoji(set: WordSet): string {
+  return set.source === "auto" ? "🌟" : set.source === "theme" ? "📚" : "📝";
+}
+
+interface ThemeInfo {
+  theme: string;
+  level: number;   // 이 주제가 처음 나오는 레벨 (쉬운 주제부터 보여주기)
+  total: number;
+  learned: number;
+}
+
 export default function StudentPage() {
   const child = useActiveChild();
+  const [childInfo, setChildInfo] = useState<Child | null>(null);
+  const [placementLater, setPlacementLater] = useState(false);
   const [sets, setSets] = useState<WordSet[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [todayLessonId, setTodayLessonId] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
+  const [themes, setThemes] = useState<ThemeInfo[] | null>(null);
+  const [showThemes, setShowThemes] = useState(false);
+  const [themeBusy, setThemeBusy] = useState<string | null>(null);
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [slowNetwork, setSlowNetwork] = useState(false);
@@ -146,13 +178,16 @@ export default function StudentPage() {
     try {
       // 오늘의 학습을 먼저 만들어야 목록에 포함된다
       const lessonId = await ensureTodayLesson(child.id);
-      const [list, stats] = await Promise.all([
+      const [list, stats, info] = await Promise.all([
         getWordSetsByChild(child.id, 30),
         getTodayStats(child.id),
+        getChild(child.id).catch(() => null),
       ]);
       setSets(list);
       setTodayLessonId(lessonId);
       setTodayStats(stats);
+      setChildInfo(info);
+      try { setPlacementLater(sessionStorage.getItem(placementLaterKey(child.id)) === "1"); } catch {}
 
       // 기본 선택: 이 탭에서 고른 세트 > 오늘 숙제 > 오늘의 학습 > 가장 최근 세트
       let saved: string | null = null;
@@ -160,7 +195,7 @@ export default function StudentPage() {
       const today = getTodayString();
       const pick =
         list.find((s) => s.id === saved) ??
-        list.find((s) => s.source !== "auto" && s.date === today) ??
+        list.find((s) => s.source === "parent" && s.date === today) ??
         list.find((s) => s.id === lessonId) ??
         list[0];
       setSelectedId(pick?.id ?? null);
@@ -173,6 +208,42 @@ export default function StudentPage() {
     setSelectedId(id);
     setShowPast(false);
     try { sessionStorage.setItem(selectedSetKey(child.id), id); } catch {}
+  }
+
+  // 주제별 단어장 목록: 처음 펼칠 때 사전과 아이 학습 상태를 불러온다
+  async function toggleThemes() {
+    const open = !showThemes;
+    setShowThemes(open);
+    if (!open || themes) return;
+    const [dict, learned] = await Promise.all([getDictionary(), getLearnedWords(child.id)]);
+    const byTheme = new Map<string, ThemeInfo>();
+    for (const w of dict) {
+      const t = byTheme.get(w.theme) ?? { theme: w.theme, level: w.level, total: 0, learned: 0 };
+      t.level = Math.min(t.level, w.level);
+      t.total += 1;
+      if (learned.has(w.english)) t.learned += 1;
+      byTheme.set(w.theme, t);
+    }
+    setThemes(Array.from(byTheme.values()).sort((a, b) => a.level - b.level || a.theme.localeCompare(b.theme)));
+  }
+
+  async function openTheme(theme: string) {
+    setThemeBusy(theme);
+    const id = await createThemeLesson(child.id, theme);
+    if (id) {
+      setSets(await getWordSetsByChild(child.id, 30));
+      selectSet(id);
+      setShowThemes(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      alert("단어장을 만들지 못했어요. 잠시 후 다시 해 주세요.");
+    }
+    setThemeBusy(null);
+  }
+
+  function placementLaterClick() {
+    setPlacementLater(true);
+    try { sessionStorage.setItem(placementLaterKey(child.id), "1"); } catch {}
   }
 
   // 다른 자녀로 바꾸거나 부모 메뉴로 가는 화면 (부모 메뉴는 PIN 필요)
@@ -223,8 +294,11 @@ export default function StudentPage() {
 
   const today = getTodayString();
   const todayLesson = sets.find((s) => s.id === todayLessonId) ?? null;
-  const todayHomework = sets.filter((s) => s.source !== "auto" && s.date === today);
-  const pastSets = sets.filter((s) => s.id !== todayLesson?.id && !todayHomework.some((h) => h.id === s.id));
+  const todayHomework = sets.filter((s) => s.source === "parent" && s.date === today);
+  const todayThemes = sets.filter((s) => s.source === "theme" && s.date === today);
+  const todayIds = new Set([todayLesson?.id, ...todayHomework.map((s) => s.id), ...todayThemes.map((s) => s.id)]);
+  const pastSets = sets.filter((s) => !todayIds.has(s.id));
+  const showPlacement = !!childInfo && childInfo.auto_lesson && !childInfo.placement_done_at && !placementLater;
   const lessonNew = todayLesson?.words?.filter((w) => w.lesson_role === "new").length ?? 0;
   const lessonReview = todayLesson?.words?.filter((w) => w.lesson_role === "review").length ?? 0;
 
@@ -288,8 +362,25 @@ export default function StudentPage() {
           </div>
         </div>
 
-        {/* 오늘 할 공부: 오늘의 학습 + 오늘 숙제 */}
-        {(todayLesson || todayHomework.length > 0) && (
+        {/* 레벨 테스트 안내 (아직 안 본 아이) */}
+        {showPlacement && (
+          <div className="bg-gradient-to-r from-indigo-500 to-primary-500 rounded-3xl p-5 shadow-md mb-6 text-white flex items-center gap-4">
+            <div className="text-4xl">🎯</div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold">레벨 테스트</p>
+              <p className="text-sm text-blue-100">3분이면 내 수준에 딱 맞는 단어부터 공부할 수 있어요</p>
+            </div>
+            <div className="flex flex-col gap-1 shrink-0">
+              <Link href="/student/placement" className="px-4 py-2 bg-white text-primary-600 font-bold rounded-xl text-sm text-center">
+                시작
+              </Link>
+              <button onClick={placementLaterClick} className="text-xs text-blue-100">다음에</button>
+            </div>
+          </div>
+        )}
+
+        {/* 오늘 할 공부: 오늘의 학습 + 오늘 숙제 + 오늘 고른 단어장 */}
+        {(todayLesson || todayHomework.length > 0 || todayThemes.length > 0) && (
           <div className="mb-6">
             <h2 className="text-lg font-bold text-gray-800 mb-3">오늘 할 공부</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -302,6 +393,7 @@ export default function StudentPage() {
                   detail={[lessonNew > 0 && `새 단어 ${lessonNew}개`, lessonReview > 0 && `복습 ${lessonReview}개`]
                     .filter(Boolean)
                     .join(" · ")}
+                  note={todayLesson.note ?? undefined}
                 />
               )}
               {todayHomework.map((s) => (
@@ -311,6 +403,16 @@ export default function StudentPage() {
                   onClick={() => selectSet(s.id)}
                   emoji="📝"
                   title={`숙제: ${setLabel(s)}`}
+                  detail={`단어 ${s.words?.length ?? 0}개`}
+                />
+              ))}
+              {todayThemes.map((s) => (
+                <SetChoice
+                  key={s.id}
+                  selected={selectedId === s.id}
+                  onClick={() => selectSet(s.id)}
+                  emoji="📚"
+                  title={setLabel(s)}
                   detail={`단어 ${s.words?.length ?? 0}개`}
                 />
               ))}
@@ -365,10 +467,48 @@ export default function StudentPage() {
                       }`}
                     >
                       <span className="truncate">
-                        {s.source === "auto" ? "🌟" : "📝"} {setLabel(s)}
+                        {setEmoji(s)} {setLabel(s)}
                       </span>
                       <span className="text-gray-400 shrink-0 ml-2">
                         {formatDateShort(s.date)} · {s.words?.length ?? 0}개
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 주제별 단어장: 아이가 직접 골라 공부 */}
+        <div className="bg-white rounded-3xl p-5 shadow-md mb-6">
+          <button
+            onClick={toggleThemes}
+            className="w-full flex items-center justify-between text-left"
+            aria-expanded={showThemes}
+          >
+            <span className="text-lg font-bold text-gray-800">📚 주제별 단어장</span>
+            <span className="text-sm text-gray-400">{showThemes ? "접기 ▲" : "골라서 공부하기 ▼"}</span>
+          </button>
+          {showThemes && (
+            <div className="mt-4">
+              {!themes ? (
+                <p className="text-sm text-gray-400">불러오는 중...</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {themes.map((t) => (
+                    <button
+                      key={t.theme}
+                      onClick={() => openTheme(t.theme)}
+                      disabled={!!themeBusy}
+                      className="flex items-center gap-2 p-3 rounded-2xl bg-gray-50 hover:bg-primary-50 text-left disabled:opacity-50"
+                    >
+                      <span className="text-2xl">{THEME_EMOJI[t.theme] ?? "📖"}</span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-gray-800 truncate">{t.theme}</span>
+                        <span className="block text-xs text-gray-400">
+                          {themeBusy === t.theme ? "만드는 중..." : `${t.learned}/${t.total} 배움`}
+                        </span>
                       </span>
                     </button>
                   ))}

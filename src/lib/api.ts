@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child } from "./types";
+import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child, DictionaryWord } from "./types";
 import { localMidnight, toLocalDateString } from "./utils";
 
 // ============ 전체 행 조회 (페이지 나눠 읽기) ============
@@ -111,10 +111,12 @@ export async function createChild(
   return { child: data, error: null };
 }
 
-// 오늘의 학습 설정 (학년·하루 새 단어 수·자동 구성)
+// 오늘의 학습 설정 (학년·하루 새 단어 수·자동 구성·레벨 테스트 결과 초기화)
 export async function updateChildSettings(
   childId: string,
-  settings: Partial<Pick<Child, "grade" | "daily_new_words" | "auto_lesson">>
+  settings: Partial<
+    Pick<Child, "grade" | "daily_new_words" | "auto_lesson" | "start_level" | "placement_done_at">
+  >
 ): Promise<boolean> {
   const { error } = await supabase.from("children").update(settings).eq("id", childId);
   return !error;
@@ -226,6 +228,77 @@ export async function ensureTodayLesson(childId: string): Promise<string | null>
   });
   if (error) {
     console.error("ensureTodayLesson:", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+// ============ 공용 사전·레벨 테스트·주제별 단어장 ============
+
+let dictionaryCache: Promise<DictionaryWord[]> | null = null;
+
+// 사전 전체(500단어 남짓). 한 번 불러오면 페이지를 떠날 때까지 재사용
+export function getDictionary(): Promise<DictionaryWord[]> {
+  if (!dictionaryCache) {
+    dictionaryCache = fetchAllRows<DictionaryWord>((from, to) =>
+      supabase
+        .from("dictionary_words")
+        .select("id, english, korean, level, theme, sort_order")
+        .order("level", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .range(from, to)
+    ).then((rows) => {
+      if (rows.length === 0) dictionaryCache = null; // 실패 시 다음에 다시 시도
+      return rows;
+    });
+  }
+  return dictionaryCache;
+}
+
+// 아이가 학습한 단어 → 연속 정답 횟수(streak)
+export async function getLearnedWords(childId: string): Promise<Map<string, number>> {
+  const rows = await fetchAllRows<{ english: string; streak: number }>((from, to) =>
+    supabase
+      .from("child_word_progress")
+      .select("english, streak")
+      .eq("child_id", childId)
+      .order("english", { ascending: true })
+      .range(from, to)
+  );
+  return new Map(rows.map((r) => [r.english, r.streak]));
+}
+
+export interface PlacementResult {
+  start_level: number;
+  known_words: number;
+  levels: { level: number; total: number; correct: number }[];
+}
+
+export async function submitPlacement(
+  childId: string,
+  results: { english: string; correct: boolean }[]
+): Promise<PlacementResult | null> {
+  const { data, error } = await supabase.rpc("apply_placement_result", {
+    p_child: childId,
+    p_results: results,
+    p_day: toLocalDateString(),
+  });
+  if (error) {
+    console.error("submitPlacement:", error.message);
+    return null;
+  }
+  return data as PlacementResult;
+}
+
+// 주제별 단어장 세트를 만들고(오늘 이미 있으면 그대로) id를 돌려준다
+export async function createThemeLesson(childId: string, theme: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("create_theme_lesson", {
+    p_child: childId,
+    p_theme: theme,
+    p_day: toLocalDateString(),
+  });
+  if (error) {
+    console.error("createThemeLesson:", error.message);
     return null;
   }
   return data ?? null;

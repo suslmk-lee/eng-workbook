@@ -17,8 +17,37 @@ export interface Child {
   grade: number;            // 0: 영어 처음, 1~6: 초1~초6 (오늘의 학습 시작 수준)
   daily_new_words: number;  // 오늘의 학습 새 단어 수 (3~10)
   auto_lesson: boolean;     // 오늘의 학습 자동 구성
+  start_level: number | null;        // 레벨 테스트 결과(1~5). 있으면 학년 대신 이 레벨부터
+  placement_done_at: string | null;  // 레벨 테스트 본 시각
   created_at: string;
 }
+
+// 사전 레벨 → 화면 표시
+export const LEVEL_LABELS: Record<number, string> = {
+  1: "레벨 1 (영어 처음~초2)",
+  2: "레벨 2 (초3)",
+  3: "레벨 3 (초4)",
+  4: "레벨 4 (초5)",
+  5: "레벨 5 (초6)",
+};
+
+export interface DictionaryWord {
+  id: number;
+  english: string;
+  korean: string;
+  level: number;
+  theme: string;
+  sort_order: number;
+}
+
+// 주제별 단어장 아이콘
+export const THEME_EMOJI: Record<string, string> = {
+  숫자: "🔢", 색깔: "🎨", 동물: "🐶", 가족: "👪", 몸: "🖐️", 음식: "🍎", 물건: "🎒", 인사: "👋",
+  학교: "🏫", 동작: "🏃", "모양·상태": "📏", 날씨: "⛅", "집·자연": "🏡",
+  시간: "⏰", 장소: "🗺️", 생활: "🧹", 상태: "😴", 옷: "👕",
+  직업: "👩‍⚕️", 교통: "🚌", "취미·운동": "⚽", 감정: "😊", "생각·배움": "💡", "성격·상태": "🙂", "말·글": "✉️",
+  "자연·환경": "🌍", 건강: "💪", 행동: "✋", "느낌·평가": "⭐", "생각·문화": "🎎", 여행: "✈️",
+};
 
 export const GRADE_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: "영어 처음" },
@@ -53,7 +82,8 @@ export interface WordSet {
   date: string;
   parent_id?: string;
   child_id?: string;
-  source?: "parent" | "auto";  // 부모가 넣은 숙제 / 자동 오늘의 학습
+  source?: "parent" | "auto" | "theme";  // 부모가 넣은 숙제 / 자동 오늘의 학습 / 주제별 단어장
+  note?: string | null;                  // 오늘의 학습 자동 조절 이유
   created_at: string;
   words?: Word[];
 }
