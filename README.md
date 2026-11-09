@@ -49,7 +49,10 @@ npm run dev
 
 1. [Supabase](https://supabase.com)에서 프로젝트 생성
 2. `.env.local.example`을 `.env.local`로 복사 후 키 입력
-3. `src/lib/supabase-schema.sql` 내용을 Supabase SQL Editor에서 실행
+3. Supabase SQL Editor에서 아래 순서로 실행
+   1. `src/lib/supabase-schema.sql` (테이블)
+   2. `src/lib/supabase-migration-auth.sql` (인증·학부모/자녀)
+   3. `src/lib/supabase-migration-security.sql` (보안 정책 정비 — **기존 DB에도 반드시 실행**)
 
 ```bash
 cp .env.local.example .env.local
