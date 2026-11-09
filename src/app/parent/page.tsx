@@ -26,7 +26,7 @@ import CameraOcr from "@/components/CameraOcr";
 import TtsStatusBadge from "@/components/TtsStatusBadge";
 import ParentPinDialog from "@/components/ParentPinDialog";
 import LegacyStudentNotice from "@/components/LegacyStudentNotice";
-import { WordSet, Child, GRADE_OPTIONS, DAILY_NEW_WORD_OPTIONS, LEVEL_LABELS, THEME_EMOJI } from "@/lib/types";
+import { WordSet, Child, GRADE_OPTIONS, DAILY_NEW_WORD_OPTIONS, LEVEL_LABELS, THEME_EMOJI, MODULE_SHORT_NAMES } from "@/lib/types";
 import {
   createWordSet,
   getWordSetsByChild,
@@ -878,8 +878,8 @@ export default function ParentPage() {
                     const accuracy = Math.round((data.correct / data.total) * 100);
                     return (
                       <div key={module} className="flex items-center gap-4">
-                        <div className="w-24 text-sm font-medium text-gray-600 capitalize">
-                          {module}
+                        <div className="w-24 text-sm font-medium text-gray-600">
+                          {MODULE_LABEL[module] ?? module}
                         </div>
                         <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
                           <div
@@ -923,18 +923,7 @@ export default function ParentPage() {
 
 // ===================== 날짜별 통계 컴포넌트 =====================
 
-const MODULE_LABEL: Record<string, string> = {
-  flashcard: "플래시카드",
-  quiz: "4지선다",
-  matching: "매칭",
-  spelling: "스펠링",
-  scramble: "스크램블",
-  listening: "듣기",
-  speed: "스피드",
-  speaking: "발음",
-  battle: "배틀",
-  exam: "시험",
-};
+const MODULE_LABEL: Record<string, string> = MODULE_SHORT_NAMES;
 
 // 아이별 단어 학습 상태 요약 (망각곡선 복습 기준)
 function WordProgressCard({ progress }: { progress: WordProgressSummary }) {

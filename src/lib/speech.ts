@@ -213,3 +213,22 @@ export function initVoices(): Promise<SpeechSynthesisVoice[]> {
     };
   });
 }
+
+// ============ 음성 인식 (말하기 모듈) ============
+// 브라우저 내장 음성 인식. 크롬·사파리에서 동작하고 파이어폭스 등은 지원하지 않아 null
+export function createSpeechRecognition(): any | null {
+  if (typeof window === "undefined") return null;
+  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (!SR) return null;
+  const recognition = new SR();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 5;
+  return recognition;
+}
+
+export function speechRecognitionErrorMessage(error: string): string {
+  if (error === "not-allowed" || error === "service-not-allowed") return "마이크 사용을 허용해주세요 (브라우저 설정)";
+  if (error === "no-speech") return "소리가 들리지 않았어요. 다시 눌러서 크게 말해보세요!";
+  return "음성 인식에 실패했어요. 다시 시도해주세요.";
+}
