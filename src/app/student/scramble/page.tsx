@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Check, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetForChild, saveLearningRecord, addReward } from "@/lib/api";
 import { scrambleWord, cn } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
@@ -39,8 +39,7 @@ function ScrambleContent() {
   }, [currentIndex, words]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words) {
       setWords(targetSet.words);
     }

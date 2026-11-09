@@ -6,8 +6,8 @@
 --   엄마  mom@test.local  가족 owner
 --   아빠  dad@test.local  같은 가족 guardian
 -- 자녀 프로필
---   민아  단어 세트 2개(어제·오늘), 최근 2주 학습 기록, 보상
---   준    단어 세트 1개(오늘), 기록 없음
+--   민아  초3. 숙제 2개(어제·오늘), 최근 2주 학습 기록, 보상
+--   준    영어 처음. 숙제 1개(오늘), 기록 없음
 -- 부모 PIN은 비워 둡니다 (아이를 처음 고를 때 PIN을 정하는 흐름을 확인할 수 있게)
 -- =============================================
 
@@ -47,20 +47,20 @@ FROM public.family_members
 WHERE user_id = 'a0000000-0000-0000-0000-000000000001';
 
 -- 3. 자녀 프로필
-INSERT INTO public.children (id, family_id, name)
-SELECT c.id, m.family_id, c.name
+INSERT INTO public.children (id, family_id, name, grade)
+SELECT c.id, m.family_id, c.name, c.grade
 FROM public.family_members m
 CROSS JOIN (VALUES
-  ('c0000000-0000-0000-0000-000000000001'::uuid, '민아'),
-  ('c0000000-0000-0000-0000-000000000002'::uuid, '준')
-) AS c(id, name)
+  ('c0000000-0000-0000-0000-000000000001'::uuid, '민아', 3),
+  ('c0000000-0000-0000-0000-000000000002'::uuid, '준', 0)
+) AS c(id, name, grade)
 WHERE m.user_id = 'a0000000-0000-0000-0000-000000000001';
 
 -- 4. 단어 세트
 INSERT INTO public.word_sets (id, title, date, parent_id, child_id) VALUES
-  ('50000000-0000-0000-0000-000000000001', 'Unit 3 과일', CURRENT_DATE - 1, 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000002', 'Unit 4 동물', CURRENT_DATE,     'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000003', 'Unit 1 색깔', CURRENT_DATE,     'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002');
+  ('50000000-0000-0000-0000-000000000001', 'Unit 3 과일', (now() AT TIME ZONE 'Asia/Seoul')::date - 1, 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000002', 'Unit 4 동물', (now() AT TIME ZONE 'Asia/Seoul')::date,     'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000003', 'Unit 1 색깔', (now() AT TIME ZONE 'Asia/Seoul')::date,     'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002');
 
 INSERT INTO public.words (word_set_id, english, korean)
 SELECT s.set_id::uuid, w.english, w.korean
@@ -88,7 +88,7 @@ SELECT
   m.module,
   abs(hashtext(w.id::text || days.d || m.module)) % 10 < 8,  -- 정답률 약 80%
   'c0000000-0000-0000-0000-000000000001',
-  date_trunc('day', now()) - days.d * interval '1 day' + interval '18 hours'
+  (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') - days.d * interval '1 day' + interval '18 hours'
     + m.start_min * interval '1 minute'
     + CASE WHEN m.batch THEN interval '0' ELSE w.n * interval '20 seconds' END
 FROM days
@@ -97,12 +97,8 @@ CROSS JOIN (VALUES ('quiz', true, 0), ('matching', true, 5), ('spelling', false,
 
 INSERT INTO public.rewards (type, description, module_type, student_id, earned_at)
 SELECT 'star', '4지선다 퀴즈 80% 이상! ⭐', 'quiz', 'c0000000-0000-0000-0000-000000000001',
-       date_trunc('day', now()) - d * interval '1 day' + interval '18 hours 3 minutes'
+       (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') - d * interval '1 day' + interval '18 hours 3 minutes'
 FROM generate_series(1, 14, 3) AS d;
 
--- 6. 복습 일정: 어제 세트는 오늘 복습, 오늘 세트는 내일 복습
-INSERT INTO public.review_schedules (word_id, word_set_id, student_id, next_review_date)
-SELECT w.id, w.word_set_id, s.child_id,
-       CASE WHEN s.date < CURRENT_DATE THEN CURRENT_DATE ELSE CURRENT_DATE + 1 END
-FROM public.words w
-JOIN public.word_sets s ON s.id = w.word_set_id;
+-- 아이별 단어 학습 상태(child_word_progress)는 위 학습 기록이 들어갈 때 트리거가 자동으로 만든다.
+-- 오늘의 학습은 아이가 앱을 열 때 만들어진다 (민아·준 모두 오늘 숙제가 있어 복습 위주).

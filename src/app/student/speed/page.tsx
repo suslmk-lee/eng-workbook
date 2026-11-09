@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Zap, Clock } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetForChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { shuffleArray, cn } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
@@ -50,8 +50,7 @@ function SpeedContent() {
   }, [timeLeft, gameState]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words) {
       setWords(targetSet.words);
     }

@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, ChevronLeft, ChevronRight, RotateCcw, Check } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetForChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { useActiveChild } from "@/lib/child-mode";
 
@@ -40,8 +40,7 @@ function FlashcardContent() {
   }, [allLearned]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words) {
       setWords(targetSet.words);
     }
@@ -178,13 +177,31 @@ function FlashcardContent() {
                 </div>
 
                 {/* Back - Korean */}
-                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-gradient-to-br from-primary-500 to-primary-700 rounded-3xl shadow-lg flex flex-col items-center justify-center p-8">
+                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-gradient-to-br from-primary-500 to-primary-700 rounded-3xl shadow-lg flex flex-col items-center justify-center p-6">
                   <p className="text-sm text-blue-200 mb-2">한국어</p>
-                  <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+                  <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">
                     {currentWord.korean}
                   </h2>
                   <p className="text-lg text-blue-100">{currentWord.english}</p>
-                  <p className="text-xs text-blue-200 mt-4">탭하여 영어 보기</p>
+                  {currentWord.dictionary_words && (
+                    <div className="mt-4 w-full max-w-sm bg-white/15 rounded-2xl px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <p className="text-white font-medium">{currentWord.dictionary_words.example_en}</p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            speakEnglish(currentWord.dictionary_words!.example_en, 0.85);
+                          }}
+                          className="p-1.5 bg-white/20 rounded-full hover:bg-white/30 shrink-0"
+                          aria-label="예문 듣기"
+                        >
+                          <Volume2 className="w-4 h-4 text-white" />
+                        </button>
+                      </div>
+                      <p className="text-sm text-blue-100 mt-1">{currentWord.dictionary_words.example_ko}</p>
+                    </div>
+                  )}
+                  <p className="text-xs text-blue-200 mt-3">탭하여 영어 보기</p>
                 </div>
               </div>
             </div>

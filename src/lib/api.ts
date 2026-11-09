@@ -97,15 +97,27 @@ export async function getChild(childId: string): Promise<Child | null> {
   return data;
 }
 
-export async function createChild(name: string): Promise<{ child: Child | null; error: string | null }> {
+export async function createChild(
+  name: string,
+  grade: number
+): Promise<{ child: Child | null; error: string | null }> {
   // family_id는 DB 기본값(내 가족)으로 채워진다
   const { data, error } = await supabase
     .from("children")
-    .insert({ name: name.trim() })
+    .insert({ name: name.trim(), grade })
     .select()
     .single();
   if (error) return { child: null, error: error.message };
   return { child: data, error: null };
+}
+
+// 오늘의 학습 설정 (학년·하루 새 단어 수·자동 구성)
+export async function updateChildSettings(
+  childId: string,
+  settings: Partial<Pick<Child, "grade" | "daily_new_words" | "auto_lesson">>
+): Promise<boolean> {
+  const { error } = await supabase.from("children").update(settings).eq("id", childId);
+  return !error;
 }
 
 export async function renameChild(childId: string, name: string): Promise<boolean> {
@@ -173,37 +185,81 @@ export async function createWordSet(
     await supabase.from("word_sets").delete().eq("id", wordSet.id);
     return null;
   }
-
-  // 복습 스케줄 생성
-  const { data: insertedWords } = await supabase
-    .from("words")
-    .select("id")
-    .eq("word_set_id", wordSet.id);
-
-  if (insertedWords) {
-    const schedules = insertedWords.map((w) => ({
-      word_id: w.id,
-      word_set_id: wordSet.id,
-      student_id: childId,
-      next_review_date: getNextReviewDate(0),
-      review_count: 0,
-      ease_factor: 2.5,
-    }));
-    await supabase.from("review_schedules").insert(schedules);
-  }
-
+  // 복습 일정은 아이가 학습할 때 DB가 단어별로 자동 관리한다 (child_word_progress)
   return wordSet;
 }
 
-export async function getWordSetsByChild(childId: string): Promise<WordSet[]> {
+// 단어 + 사전 예문
+const WORD_SET_SELECT = "*, words(*, dictionary_words(example_en, example_ko))";
+
+export async function getWordSetsByChild(childId: string, limit = 60): Promise<WordSet[]> {
   const { data, error } = await supabase
     .from("word_sets")
-    .select("*, words(*)")
+    .select(WORD_SET_SELECT)
     .eq("child_id", childId)
-    .order("date", { ascending: false });
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
   if (error) return [];
   return data || [];
+}
+
+// 학습 모듈용: setId가 있으면 그 세트, 없으면 가장 최근 세트
+export async function getWordSetForChild(childId: string, setId?: string | null): Promise<WordSet | null> {
+  let query = supabase.from("word_sets").select(WORD_SET_SELECT).eq("child_id", childId);
+  query = setId
+    ? query.eq("id", setId)
+    : query.order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1);
+  const { data, error } = await query.maybeSingle();
+  if (error) return null;
+  return data;
+}
+
+// ============ 오늘의 학습 ============
+
+// 오늘의 학습 세트를 만들고(이미 있으면 그대로) id를 돌려준다. 만들 게 없으면 null
+export async function ensureTodayLesson(childId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("ensure_daily_lesson", {
+    p_child: childId,
+    p_day: toLocalDateString(),
+  });
+  if (error) {
+    console.error("ensureTodayLesson:", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+export interface WordProgressSummary {
+  studied: number;   // 한 번이라도 학습한 단어
+  mastered: number;  // 서로 다른 날 3번 이상 연속으로 맞힌 단어
+  dueToday: number;  // 오늘까지 복습할 단어
+  weakWords: { english: string; korean: string | null; wrong_count: number; correct_count: number }[];
+}
+
+export async function getWordProgressSummary(childId: string): Promise<WordProgressSummary> {
+  const today = toLocalDateString();
+  const head = { count: "exact" as const, head: true };
+  const [studied, mastered, due, weak] = await Promise.all([
+    supabase.from("child_word_progress").select("english", head).eq("child_id", childId),
+    supabase.from("child_word_progress").select("english", head).eq("child_id", childId).gte("streak", 3),
+    supabase.from("child_word_progress").select("english", head).eq("child_id", childId).lte("next_review_date", today),
+    supabase
+      .from("child_word_progress")
+      .select("english, korean, wrong_count, correct_count")
+      .eq("child_id", childId)
+      .gt("wrong_count", 0)
+      .order("wrong_count", { ascending: false })
+      .order("english", { ascending: true })
+      .limit(5),
+  ]);
+  return {
+    studied: studied.count ?? 0,
+    mastered: mastered.count ?? 0,
+    dueToday: due.count ?? 0,
+    weakWords: weak.data ?? [],
+  };
 }
 
 export async function getLatestWordSet(childId?: string): Promise<WordSet | null> {
@@ -319,46 +375,8 @@ export async function getWordStats(wordSetId: string) {
   return Array.from(statsMap.values());
 }
 
-// ============ Review System (에빙하우스) ============
-
-function getNextReviewDate(reviewCount: number): string {
-  const intervals = [1, 3, 7, 14, 30, 60]; // 일 단위
-  const days = intervals[Math.min(reviewCount, intervals.length - 1)];
-  return toLocalDateString(localMidnight(days));
-}
-
-export async function getWordsForReview(studentId?: string): Promise<Word[]> {
-  const today = toLocalDateString();
-
-  const data = await fetchAllRows<any>((from, to) => {
-    let query = supabase
-      .from("review_schedules")
-      .select("*, words(*)")
-      .lte("next_review_date", today);
-    if (studentId) query = query.eq("student_id", studentId);
-    return query.order("id", { ascending: true }).range(from, to);
-  });
-  return data.map((s: any) => s.words).filter(Boolean);
-}
-
-export async function updateReviewSchedule(wordId: string): Promise<void> {
-  const { data } = await supabase
-    .from("review_schedules")
-    .select("*")
-    .eq("word_id", wordId)
-    .single();
-
-  if (!data) return;
-
-  const newCount = data.review_count + 1;
-  await supabase
-    .from("review_schedules")
-    .update({
-      review_count: newCount,
-      next_review_date: getNextReviewDate(newCount),
-    })
-    .eq("word_id", wordId);
-}
+// 망각곡선 복습은 DB가 단어별로 관리한다 (child_word_progress, 학습 기록 저장 시 자동 갱신).
+// 복습할 단어는 오늘의 학습(ensureTodayLesson)에 자동으로 들어간다.
 
 // ============ Rewards ============
 

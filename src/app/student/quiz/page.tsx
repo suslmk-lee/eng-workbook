@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, Trophy } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetForChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { useActiveChild } from "@/lib/child-mode";
 import { shuffleArray } from "@/lib/utils";
 import { speakEnglish } from "@/lib/speech";
@@ -39,8 +39,7 @@ function QuizContent() {
   }, [setId]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words) {
       setWords(targetSet.words);
       generateQuestions(targetSet.words);
