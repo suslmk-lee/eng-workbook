@@ -156,10 +156,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (error) return { error: error.message };
 
+    // 프로필은 DB 트리거(handle_new_user)가 만든다. 트리거가 없는 환경 대비로만 추가하고,
+    // 이미 있으면 건드리지 않는다 (클라이언트는 role·email 수정 권한이 없음).
     if (data.user && data.session) {
       const { error: profileError } = await supabase.from("profiles").upsert(
         { id: data.user.id, email, name, role },
-        { onConflict: "id" }
+        { onConflict: "id", ignoreDuplicates: true }
       );
       if (profileError) {
         console.error("Profile upsert error:", profileError.message);

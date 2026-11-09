@@ -31,7 +31,6 @@ import {
   getDashboardStats,
   getWordStats,
   getChildren,
-  linkChild,
   unlinkChild,
   getDailyStatsRange,
   DailyStats,
@@ -63,9 +62,6 @@ export default function ParentPage() {
   const [wordStats, setWordStats] = useState<any[]>([]);
   const [children, setChildren] = useState<ParentChild[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>("");
-  const [childEmail, setChildEmail] = useState("");
-  const [linkError, setLinkError] = useState("");
-  const [linkLoading, setLinkLoading] = useState(false);
   const [childName, setChildName] = useState("");
   const [childLoginId, setChildLoginId] = useState("");
   const [childPin, setChildPin] = useState("");
@@ -111,23 +107,12 @@ export default function ParentPage() {
     setStats(dashStats);
   }
 
-  async function handleAddChild(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user || !childEmail.trim()) return;
-    setLinkLoading(true);
-    setLinkError("");
-    const result = await linkChild(user.id, childEmail.trim());
-    if (result.error) {
-      setLinkError(result.error);
-    } else {
-      setChildEmail("");
-      await loadChildren();
-    }
-    setLinkLoading(false);
-  }
-
   async function handleRemoveChild(childId: string) {
-    if (!user || !confirm("이 자녀를 목록에서 제거할까요?")) return;
+    if (
+      !user ||
+      !confirm("이 자녀를 목록에서 제거할까요?\n제거하면 다시 연결할 수 없고, 학습 현황도 볼 수 없게 돼요.")
+    )
+      return;
     await unlinkChild(user.id, childId);
     if (selectedChildId === childId) setSelectedChildId("");
     await loadChildren();
@@ -471,34 +456,6 @@ export default function ParentPage() {
                 <p className="text-red-500 text-sm mt-2">{createError}</p>
               )}
             </form>
-
-            <details className="bg-white rounded-3xl p-6 shadow-md">
-              <summary className="font-bold text-gray-600 cursor-pointer">
-                이메일로 가입한 학생 계정 연결 (기존 방식)
-              </summary>
-              <form onSubmit={handleAddChild} className="mt-4">
-                <div className="flex gap-3">
-                  <input
-                    type="email"
-                    value={childEmail}
-                    onChange={(e) => setChildEmail(e.target.value)}
-                    placeholder="자녀의 이메일"
-                    className="input-field flex-1"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    disabled={linkLoading}
-                    className="btn-primary px-6 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {linkLoading ? "등록 중..." : "연결"}
-                  </button>
-                </div>
-                {linkError && (
-                  <p className="text-red-500 text-sm mt-2">{linkError}</p>
-                )}
-              </form>
-            </details>
 
             <div className="bg-white rounded-3xl p-6 shadow-md">
               <h2 className="text-xl font-bold text-gray-800 mb-4">등록된 자녀</h2>
