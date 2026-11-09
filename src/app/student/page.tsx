@@ -21,6 +21,9 @@ import {
   Lock,
   Mic,
   Swords,
+  TextCursorInput,
+  ListOrdered,
+  Speech,
 } from "lucide-react";
 import { WordSet, Child, MODULE_LIST, ModuleInfo, ModuleType, THEME_EMOJI } from "@/lib/types";
 import {
@@ -39,19 +42,7 @@ import TtsModeToggle from "@/components/TtsModeToggle";
 
 const iconMap: Record<string, any> = {
   Layers, CircleHelp, Puzzle, PenLine, Shuffle, Headphones, Zap, Mic, Swords,
-};
-
-const MODULE_TITLES: Record<ModuleType, string> = {
-  flashcard: "플래시카드",
-  quiz: "4지선다",
-  matching: "매칭",
-  spelling: "스펠링",
-  scramble: "스크램블",
-  listening: "듣기",
-  speed: "스피드",
-  speaking: "발음",
-  battle: "배틀",
-  exam: "시험",
+  TextCursorInput, ListOrdered, Speech,
 };
 
 function ScoreGauge({ score }: { score: number }) {
@@ -522,9 +513,27 @@ export default function StudentPage() {
         <TtsModeToggle />
 
         {/* Module Grid */}
-        <h2 className="text-lg font-bold text-gray-800 mb-4">학습 모듈 선택</h2>
+        <h2 className="text-lg font-bold text-gray-800 mb-4">단어 학습</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {MODULE_LIST.map((module) => (
+          {MODULE_LIST.filter((m) => !m.group).map((module) => (
+            <ModuleCard
+              key={module.type}
+              module={module}
+              wordSetId={wordSet.id}
+              stat={todayStats?.moduleStats[module.type]}
+            />
+          ))}
+        </div>
+
+        {/* 문장 학습: 사전 예문이 있는 단어로 */}
+        <h2 className="text-lg font-bold text-gray-800 mt-8 mb-1">문장 학습</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          {wordSet.words.some((w) => w.dictionary_words)
+            ? "단어가 들어간 예문으로 공부해요"
+            : "이 단어들에는 예문이 없어요. 오늘의 학습이나 단어장으로 해 보세요"}
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {MODULE_LIST.filter((m) => m.group === "sentence").map((module) => (
             <ModuleCard
               key={module.type}
               module={module}

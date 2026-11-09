@@ -127,7 +127,10 @@ export type ModuleType =
   | "speed"
   | "speaking"
   | "battle"
-  | "exam";
+  | "exam"
+  | "cloze"       // 문장 빈칸 채우기
+  | "ordering"    // 문장 순서 맞추기
+  | "shadowing";  // 문장 따라 말하기
 
 export interface ModuleInfo {
   type: ModuleType;
@@ -136,6 +139,7 @@ export interface ModuleInfo {
   icon: string;
   color: string;
   bgColor: string;
+  group?: "sentence";  // 문장 학습 (사전 예문이 있는 단어로)
 }
 
 export interface LearningStats {
@@ -219,4 +223,48 @@ export const MODULE_LIST: ModuleInfo[] = [
     color: "text-rose-500",
     bgColor: "bg-rose-100",
   },
+  {
+    type: "cloze",
+    title: "문장 빈칸 채우기",
+    description: "문장에 알맞은 단어를 골라요",
+    icon: "TextCursorInput",
+    color: "text-teal-500",
+    bgColor: "bg-teal-100",
+    group: "sentence",
+  },
+  {
+    type: "ordering",
+    title: "문장 순서 맞추기",
+    description: "단어를 순서대로 놓아 문장을 만들어요",
+    icon: "ListOrdered",
+    color: "text-amber-500",
+    bgColor: "bg-amber-100",
+    group: "sentence",
+  },
+  {
+    type: "shadowing",
+    title: "문장 따라 말하기",
+    description: "문장을 듣고 따라 말해요",
+    icon: "Speech",
+    color: "text-sky-500",
+    bgColor: "bg-sky-100",
+    group: "sentence",
+  },
 ];
+
+// 모듈 이름 (통계 표시용)
+export const MODULE_SHORT_NAMES: Record<ModuleType, string> = {
+  flashcard: "플래시카드",
+  quiz: "4지선다",
+  matching: "매칭",
+  spelling: "스펠링",
+  scramble: "스크램블",
+  listening: "듣기",
+  speed: "스피드",
+  speaking: "발음",
+  battle: "배틀",
+  exam: "시험",
+  cloze: "문장 빈칸",
+  ordering: "문장 순서",
+  shadowing: "문장 말하기",
+};
