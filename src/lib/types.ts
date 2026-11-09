@@ -14,7 +14,26 @@ export interface Child {
   id: string;
   family_id: string;
   name: string;
+  grade: number;            // 0: 영어 처음, 1~6: 초1~초6 (오늘의 학습 시작 수준)
+  daily_new_words: number;  // 오늘의 학습 새 단어 수 (3~10)
+  auto_lesson: boolean;     // 오늘의 학습 자동 구성
   created_at: string;
+}
+
+export const GRADE_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "영어 처음" },
+  { value: 1, label: "초1" },
+  { value: 2, label: "초2" },
+  { value: 3, label: "초3" },
+  { value: 4, label: "초4" },
+  { value: 5, label: "초5" },
+  { value: 6, label: "초6" },
+];
+
+export const DAILY_NEW_WORD_OPTIONS = [3, 5, 7, 10];
+
+export function gradeLabel(grade: number): string {
+  return GRADE_OPTIONS.find((g) => g.value === grade)?.label ?? `${grade}학년`;
 }
 
 export interface Word {
@@ -23,6 +42,9 @@ export interface Word {
   english: string;
   korean: string;
   created_at: string;
+  dictionary_word_id?: number | null;
+  lesson_role?: "new" | "review" | null;  // 오늘의 학습에서 새 단어/복습 구분
+  dictionary_words?: { example_en: string; example_ko: string } | null;  // 사전 예문
 }
 
 export interface WordSet {
@@ -31,6 +53,7 @@ export interface WordSet {
   date: string;
   parent_id?: string;
   child_id?: string;
+  source?: "parent" | "auto";  // 부모가 넣은 숙제 / 자동 오늘의 학습
   created_at: string;
   words?: Word[];
 }

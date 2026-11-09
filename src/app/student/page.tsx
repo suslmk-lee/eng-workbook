@@ -23,7 +23,8 @@ import {
   Swords,
 } from "lucide-react";
 import { WordSet, MODULE_LIST, ModuleInfo, ModuleType } from "@/lib/types";
-import { getLatestWordSet, getWordsForReview, getTodayStats, TodayStats } from "@/lib/api";
+import { ensureTodayLesson, getWordSetsByChild, getTodayStats, TodayStats } from "@/lib/api";
+import { getTodayString, formatDateShort } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import TtsModeToggle from "@/components/TtsModeToggle";
 
@@ -81,10 +82,50 @@ function ScoreGauge({ score }: { score: number }) {
   );
 }
 
+// "오늘 할 공부" 선택 카드
+function SetChoice({
+  selected,
+  onClick,
+  emoji,
+  title,
+  detail,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  emoji: string;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex items-center gap-3 p-4 rounded-2xl text-left transition-all ${
+        selected ? "bg-primary-500 text-white shadow-md" : "bg-white text-gray-800 shadow-sm hover:shadow-md"
+      }`}
+    >
+      <span className="text-3xl">{emoji}</span>
+      <span className="min-w-0">
+        <span className="block font-bold truncate">{title}</span>
+        <span className={`block text-sm ${selected ? "text-blue-100" : "text-gray-500"}`}>{detail}</span>
+      </span>
+    </button>
+  );
+}
+
+// 학습 모듈에 다녀와도 고른 단어 세트가 유지되도록 (탭을 닫으면 초기화)
+const selectedSetKey = (childId: string) => `ew_selected_set_v1:${childId}`;
+
+function setLabel(set: WordSet): string {
+  return set.source === "auto" ? "오늘의 학습" : set.title || "숙제";
+}
+
 export default function StudentPage() {
   const child = useActiveChild();
-  const [wordSet, setWordSet] = useState<WordSet | null>(null);
-  const [reviewCount, setReviewCount] = useState(0);
+  const [sets, setSets] = useState<WordSet[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [todayLessonId, setTodayLessonId] = useState<string | null>(null);
+  const [showPast, setShowPast] = useState(false);
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [slowNetwork, setSlowNetwork] = useState(false);
@@ -103,17 +144,35 @@ export default function StudentPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [ws, reviewWords, stats] = await Promise.all([
-        getLatestWordSet(child.id),
-        getWordsForReview(child.id),
+      // 오늘의 학습을 먼저 만들어야 목록에 포함된다
+      const lessonId = await ensureTodayLesson(child.id);
+      const [list, stats] = await Promise.all([
+        getWordSetsByChild(child.id, 30),
         getTodayStats(child.id),
       ]);
-      setWordSet(ws);
-      setReviewCount(reviewWords?.length ?? 0);
+      setSets(list);
+      setTodayLessonId(lessonId);
       setTodayStats(stats);
+
+      // 기본 선택: 이 탭에서 고른 세트 > 오늘 숙제 > 오늘의 학습 > 가장 최근 세트
+      let saved: string | null = null;
+      try { saved = sessionStorage.getItem(selectedSetKey(child.id)); } catch {}
+      const today = getTodayString();
+      const pick =
+        list.find((s) => s.id === saved) ??
+        list.find((s) => s.source !== "auto" && s.date === today) ??
+        list.find((s) => s.id === lessonId) ??
+        list[0];
+      setSelectedId(pick?.id ?? null);
     } finally {
       setLoading(false);
     }
+  }
+
+  function selectSet(id: string) {
+    setSelectedId(id);
+    setShowPast(false);
+    try { sessionStorage.setItem(selectedSetKey(child.id), id); } catch {}
   }
 
   // 다른 자녀로 바꾸거나 부모 메뉴로 가는 화면 (부모 메뉴는 PIN 필요)
@@ -143,18 +202,31 @@ export default function StudentPage() {
     );
   }
 
+  const wordSet = sets.find((s) => s.id === selectedId) ?? null;
+
   if (!wordSet || !wordSet.words || wordSet.words.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
           <div className="text-6xl mb-4">😢</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">아직 단어가 없어요</h2>
-          <p className="text-gray-500 mb-6">부모님에게 오늘의 단어를 등록해달라고 부탁해요!</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">아직 공부할 단어가 없어요</h2>
+          <p className="text-gray-500 mb-6">
+            부모님에게 숙제 단어를 등록하거나
+            <br />
+            &quot;오늘의 학습&quot;을 켜 달라고 부탁해요!
+          </p>
           <button onClick={goProfiles} className="btn-primary inline-block">프로필 바꾸기</button>
         </div>
       </div>
     );
   }
+
+  const today = getTodayString();
+  const todayLesson = sets.find((s) => s.id === todayLessonId) ?? null;
+  const todayHomework = sets.filter((s) => s.source !== "auto" && s.date === today);
+  const pastSets = sets.filter((s) => s.id !== todayLesson?.id && !todayHomework.some((h) => h.id === s.id));
+  const lessonNew = todayLesson?.words?.filter((w) => w.lesson_role === "new").length ?? 0;
+  const lessonReview = todayLesson?.words?.filter((w) => w.lesson_role === "review").length ?? 0;
 
   const totalSessions = todayStats?.totalSessions ?? 0;
   const todayScore = todayStats?.totalScore ?? 0;
@@ -216,34 +288,95 @@ export default function StudentPage() {
           </div>
         </div>
 
-        {/* Today's Words */}
-        <div className="bg-white rounded-3xl p-6 shadow-md mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-primary-500" />
-              오늘의 단어 ({wordSet.words.length}개)
-            </h2>
-            <span className="text-sm text-gray-400">{wordSet.title}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {wordSet.words.map((word) => (
-              <span key={word.id} className="bg-primary-50 text-primary-700 px-3 py-1.5 rounded-full text-sm font-medium">
-                {word.english}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Review Alert */}
-        {reviewCount > 0 && (
-          <div className="bg-gradient-to-r from-orange-100 to-yellow-100 rounded-2xl p-4 mb-6 flex items-center gap-3">
-            <RefreshCw className="w-6 h-6 text-orange-500 flex-shrink-0" />
-            <div>
-              <span className="font-bold text-orange-800">복습할 단어가 있어요!</span>
-              <span className="text-sm text-orange-600 ml-2">{reviewCount}개</span>
+        {/* 오늘 할 공부: 오늘의 학습 + 오늘 숙제 */}
+        {(todayLesson || todayHomework.length > 0) && (
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-3">오늘 할 공부</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {todayLesson && (
+                <SetChoice
+                  selected={selectedId === todayLesson.id}
+                  onClick={() => selectSet(todayLesson.id)}
+                  emoji="🌟"
+                  title="오늘의 학습"
+                  detail={[lessonNew > 0 && `새 단어 ${lessonNew}개`, lessonReview > 0 && `복습 ${lessonReview}개`]
+                    .filter(Boolean)
+                    .join(" · ")}
+                />
+              )}
+              {todayHomework.map((s) => (
+                <SetChoice
+                  key={s.id}
+                  selected={selectedId === s.id}
+                  onClick={() => selectSet(s.id)}
+                  emoji="📝"
+                  title={`숙제: ${setLabel(s)}`}
+                  detail={`단어 ${s.words?.length ?? 0}개`}
+                />
+              ))}
             </div>
           </div>
         )}
+
+        {/* 지금 공부할 단어 */}
+        <div className="bg-white rounded-3xl p-6 shadow-md mb-6">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-primary-500" />
+              {setLabel(wordSet)} ({wordSet.words.length}개)
+            </h2>
+            <span className="text-sm text-gray-400 shrink-0">{formatDateShort(wordSet.date)}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {wordSet.words.map((word) => (
+              <span
+                key={word.id}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                  word.lesson_role === "review" ? "bg-orange-50 text-orange-700" : "bg-primary-50 text-primary-700"
+                }`}
+              >
+                {word.english}
+                {word.lesson_role === "new" && <span className="ml-1 text-[10px] font-bold text-primary-400">NEW</span>}
+              </span>
+            ))}
+          </div>
+          {wordSet.words.some((w) => w.lesson_role === "review") && (
+            <p className="text-xs text-orange-500 mt-3 flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> 주황색 단어는 잊어버리기 전에 다시 보는 복습 단어예요
+            </p>
+          )}
+
+          {pastSets.length > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <button
+                onClick={() => setShowPast((v) => !v)}
+                className="text-sm font-medium text-gray-500 hover:text-gray-700"
+              >
+                {showPast ? "▲ 지난 공부 접기" : `▼ 지난 공부 다시 하기 (${pastSets.length})`}
+              </button>
+              {showPast && (
+                <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
+                  {pastSets.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => selectSet(s.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-left ${
+                        selectedId === s.id ? "bg-primary-50 text-primary-700" : "hover:bg-gray-50 text-gray-700"
+                      }`}
+                    >
+                      <span className="truncate">
+                        {s.source === "auto" ? "🌟" : "📝"} {setLabel(s)}
+                      </span>
+                      <span className="text-gray-400 shrink-0 ml-2">
+                        {formatDateShort(s.date)} · {s.words?.length ?? 0}개
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* TTS 발음 방식 선택 */}
         <TtsModeToggle />

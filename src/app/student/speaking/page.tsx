@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, Mic, RotateCcw, Check, X, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetForChild, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
@@ -87,8 +87,7 @@ function SpeakingContent() {
   }, [setId]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words) {
       setWords(targetSet.words);
     }

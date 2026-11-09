@@ -26,7 +26,7 @@ import CameraOcr from "@/components/CameraOcr";
 import TtsStatusBadge from "@/components/TtsStatusBadge";
 import ParentPinDialog from "@/components/ParentPinDialog";
 import LegacyStudentNotice from "@/components/LegacyStudentNotice";
-import { WordSet, Child } from "@/lib/types";
+import { WordSet, Child, GRADE_OPTIONS, DAILY_NEW_WORD_OPTIONS } from "@/lib/types";
 import {
   createWordSet,
   getWordSetsByChild,
@@ -37,6 +37,9 @@ import {
   createChild,
   renameChild,
   deleteChild,
+  updateChildSettings,
+  getWordProgressSummary,
+  WordProgressSummary,
   hasParentPin,
   getDailyStatsRange,
   DailyStats,
@@ -68,6 +71,8 @@ export default function ParentPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>("");
   const [childName, setChildName] = useState("");
+  const [childGrade, setChildGrade] = useState(3);
+  const [progress, setProgress] = useState<WordProgressSummary | null>(null);
   const [createError, setCreateError] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
@@ -113,14 +118,27 @@ export default function ParentPage() {
 
   async function loadData() {
     if (!selectedChildId) return;
-    const [sets, dashStats, daily] = await Promise.all([
+    const [sets, dashStats, daily, prog] = await Promise.all([
       getWordSetsByChild(selectedChildId),
       getDashboardStats(selectedChildId),
       getDailyStatsRange(selectedChildId, heatmapDays),
+      getWordProgressSummary(selectedChildId),
     ]);
     setDailyStats(daily);
     setWordSets(sets);
     setStats(dashStats);
+    setProgress(prog);
+  }
+
+  async function handleChildSetting(
+    child: Child,
+    settings: Partial<Pick<Child, "grade" | "daily_new_words" | "auto_lesson">>
+  ) {
+    if (!(await updateChildSettings(child.id, settings))) {
+      alert("설정을 저장하지 못했어요. 다시 시도해주세요.");
+      return;
+    }
+    await loadChildren();
   }
 
   async function handleCreateChild(e: React.FormEvent) {
@@ -129,7 +147,7 @@ export default function ParentPage() {
     if (!name) return;
     setCreateLoading(true);
     setCreateError("");
-    const { child, error } = await createChild(name);
+    const { child, error } = await createChild(name, childGrade);
     if (error || !child) {
       setCreateError("자녀를 추가하지 못했어요. 이름은 1~30자로 입력해주세요.");
     } else {
@@ -389,6 +407,16 @@ export default function ParentPage() {
                   className="input-field flex-1"
                   required
                 />
+                <select
+                  value={childGrade}
+                  onChange={(e) => setChildGrade(Number(e.target.value))}
+                  className="input-field w-28"
+                  aria-label="학년"
+                >
+                  {GRADE_OPTIONS.map((g) => (
+                    <option key={g.value} value={g.value}>{g.label}</option>
+                  ))}
+                </select>
                 <button
                   type="submit"
                   disabled={createLoading}
@@ -412,7 +440,8 @@ export default function ParentPage() {
               ) : (
                 <div className="space-y-3">
                   {children.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                    <div key={c.id} className="p-4 bg-gray-50 rounded-2xl">
+                    <div className="flex items-center justify-between">
                       <p className="font-medium text-gray-800">{c.name}</p>
                       <div className="flex items-center gap-1">
                         <button
@@ -433,9 +462,48 @@ export default function ParentPage() {
                         </button>
                       </div>
                     </div>
+                    {/* 오늘의 학습 설정 */}
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                      <label className="flex items-center gap-1.5 text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={c.auto_lesson}
+                          onChange={(e) => handleChildSetting(c, { auto_lesson: e.target.checked })}
+                          className="w-4 h-4 accent-primary-500"
+                        />
+                        오늘의 학습
+                      </label>
+                      <select
+                        value={c.grade}
+                        onChange={(e) => handleChildSetting(c, { grade: Number(e.target.value) })}
+                        disabled={!c.auto_lesson}
+                        className="px-2 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-50"
+                        aria-label={`${c.name} 학년`}
+                      >
+                        {GRADE_OPTIONS.map((g) => (
+                          <option key={g.value} value={g.value}>{g.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={c.daily_new_words}
+                        onChange={(e) => handleChildSetting(c, { daily_new_words: Number(e.target.value) })}
+                        disabled={!c.auto_lesson}
+                        className="px-2 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-50"
+                        aria-label={`${c.name} 하루 새 단어 수`}
+                      >
+                        {DAILY_NEW_WORD_OPTIONS.map((n) => (
+                          <option key={n} value={n}>새 단어 하루 {n}개</option>
+                        ))}
+                      </select>
+                    </div>
+                    </div>
                   ))}
                 </div>
               )}
+              <p className="text-xs text-gray-400 mt-4">
+                오늘의 학습: 아이가 앱을 열면 학년에 맞는 새 단어와 잊어버릴 때가 된 복습 단어를 자동으로 내줘요.
+                숙제를 등록한 날은 새 단어 없이 복습만 해요. 학년을 바꾸면 다음 날 학습부터 적용돼요.
+              </p>
             </div>
 
             <div className="bg-white rounded-3xl p-6 shadow-md">
@@ -589,6 +657,11 @@ export default function ParentPage() {
                             <div className="flex items-center gap-3">
                               <BookOpen className="w-5 h-5 text-primary-500" />
                               <div>
+                                {ws.source === "auto" && (
+                                  <span className="mr-2 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">
+                                    자동
+                                  </span>
+                                )}
                                 <span className="font-medium text-gray-800">
                                   {ws.title || formatDate(ws.date)}
                                 </span>
@@ -651,6 +724,7 @@ export default function ParentPage() {
         {/* Dashboard Tab */}
         {tab === "dashboard" && stats && (
           <div className="space-y-6">
+            {progress && <WordProgressCard progress={progress} />}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-2xl p-5 shadow-md text-center">
                 <BookOpen className="w-8 h-8 text-primary-500 mx-auto mb-2" />
@@ -743,6 +817,48 @@ const MODULE_LABEL: Record<string, string> = {
   battle: "배틀",
   exam: "시험",
 };
+
+// 아이별 단어 학습 상태 요약 (망각곡선 복습 기준)
+function WordProgressCard({ progress }: { progress: WordProgressSummary }) {
+  const items = [
+    { label: "학습한 단어", value: progress.studied, color: "text-primary-600" },
+    { label: "익힌 단어", value: progress.mastered, color: "text-green-600", hint: "다른 날 3번 연속 정답" },
+    { label: "오늘 복습할 단어", value: progress.dueToday, color: "text-orange-500" },
+  ];
+  return (
+    <div className="bg-white rounded-3xl p-6 shadow-md">
+      <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <Award className="w-5 h-5 text-primary-500" />
+        단어 학습 상태
+      </h2>
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        {items.map((it) => (
+          <div key={it.label} className="bg-gray-50 rounded-2xl p-3 text-center" title={it.hint}>
+            <div className={`text-2xl font-extrabold ${it.color}`}>{it.value}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{it.label}</div>
+          </div>
+        ))}
+      </div>
+      {progress.weakWords.length > 0 ? (
+        <div>
+          <p className="text-sm font-medium text-gray-600 mb-2">자주 틀리는 단어</p>
+          <div className="flex flex-wrap gap-2">
+            {progress.weakWords.map((w) => (
+              <span key={w.english} className="px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm">
+                {w.english}
+                {w.korean && <span className="text-red-400"> · {w.korean}</span>}
+                <span className="text-red-300 ml-1">{w.wrong_count}회</span>
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">틀린 단어는 다음 날 오늘의 학습에 복습으로 다시 나와요.</p>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400">아직 틀린 단어가 없어요.</p>
+      )}
+    </div>
+  );
+}
 
 function heatColor(records: number, accuracy: number): string {
   if (records === 0) return "bg-gray-100";

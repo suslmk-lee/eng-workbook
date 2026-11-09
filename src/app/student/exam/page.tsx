@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, ArrowRight, Trophy, Award, Star } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetForChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { speakEnglish, initVoices } from "@/lib/speech";
 import { shuffleArray, cn } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
@@ -53,8 +53,7 @@ function ExamContent() {
   }, [currentQ, submitted, questions]);
 
   async function loadWords() {
-    const sets = await getWordSetsByChild(child.id);
-    const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
+    const targetSet = await getWordSetForChild(child.id, setId);
     if (targetSet?.words && targetSet.words.length >= 4) {
       setWords(targetSet.words);
       setQuestions(generateQuestions(targetSet.words));
