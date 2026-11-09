@@ -26,7 +26,7 @@ import CameraOcr from "@/components/CameraOcr";
 import TtsStatusBadge from "@/components/TtsStatusBadge";
 import ParentPinDialog from "@/components/ParentPinDialog";
 import LegacyStudentNotice from "@/components/LegacyStudentNotice";
-import { WordSet, Child, GRADE_OPTIONS, DAILY_NEW_WORD_OPTIONS } from "@/lib/types";
+import { WordSet, Child, GRADE_OPTIONS, DAILY_NEW_WORD_OPTIONS, LEVEL_LABELS, THEME_EMOJI } from "@/lib/types";
 import {
   createWordSet,
   getWordSetsByChild,
@@ -39,6 +39,8 @@ import {
   deleteChild,
   updateChildSettings,
   getWordProgressSummary,
+  getDictionary,
+  getLearnedWords,
   WordProgressSummary,
   hasParentPin,
   getDailyStatsRange,
@@ -78,6 +80,8 @@ export default function ParentPage() {
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [heatmapDays, setHeatmapDays] = useState<30 | 60 | 90>(30);
   const [showCamera, setShowCamera] = useState(false);
+  const [fillTheme, setFillTheme] = useState("");
+  const [themeOptions, setThemeOptions] = useState<{ theme: string; level: number; count: number }[]>([]);
   const [gateChecked, setGateChecked] = useState(false); // 부모 PIN 잠금 확인 끝
   const [hasPin, setHasPin] = useState(false);
   const [pinDialog, setPinDialog] = useState<"setup" | "change" | null>(null);
@@ -106,6 +110,23 @@ export default function ParentPage() {
     if (selectedChildId) loadData();
   }, [selectedChildId, heatmapDays]);
 
+  // 단어 등록 탭: 단어장 주제 목록 (쉬운 주제부터)
+  useEffect(() => {
+    if (tab !== "register" || themeOptions.length > 0) return;
+    getDictionary().then((dict) => {
+      const byTheme = new Map<string, { theme: string; level: number; count: number }>();
+      for (const w of dict) {
+        const t = byTheme.get(w.theme) ?? { theme: w.theme, level: w.level, count: 0 };
+        t.level = Math.min(t.level, w.level);
+        t.count += 1;
+        byTheme.set(w.theme, t);
+      }
+      setThemeOptions(
+        Array.from(byTheme.values()).sort((a, b) => a.level - b.level || a.theme.localeCompare(b.theme))
+      );
+    });
+  }, [tab]);
+
   async function loadChildren() {
     const result = await getChildren();
     setChildren(result);
@@ -132,7 +153,9 @@ export default function ParentPage() {
 
   async function handleChildSetting(
     child: Child,
-    settings: Partial<Pick<Child, "grade" | "daily_new_words" | "auto_lesson">>
+    settings: Partial<
+      Pick<Child, "grade" | "daily_new_words" | "auto_lesson" | "start_level" | "placement_done_at">
+    >
   ) {
     if (!(await updateChildSettings(child.id, settings))) {
       alert("설정을 저장하지 못했어요. 다시 시도해주세요.");
@@ -232,6 +255,38 @@ export default function ParentPage() {
     const newWords = [...words];
     newWords[index] = { ...newWords[index], [field]: value };
     setWords(newWords);
+  }
+
+  // 주제별 단어장에서 빈칸 채우기: 아이가 안 배운 단어 → 배운 단어 순, 폼에 이미 있는 단어는 제외
+  async function handleFillFromTheme() {
+    if (!fillTheme) return;
+    const [dict, learned] = await Promise.all([
+      getDictionary(),
+      selectedChildId ? getLearnedWords(selectedChildId) : Promise.resolve(new Map<string, number>()),
+    ]);
+    const inForm = new Set(words.map((w) => w.english.trim().toLowerCase()).filter(Boolean));
+    const candidates = dict.filter((w) => w.theme === fillTheme && !inForm.has(w.english));
+    const ordered = [
+      ...candidates.filter((w) => !learned.has(w.english)),
+      ...candidates.filter((w) => learned.has(w.english)),
+    ];
+    const emptyRows = words
+      .map((w, i) => (!w.english.trim() && !w.korean.trim() ? i : -1))
+      .filter((i) => i >= 0);
+    if (emptyRows.length === 0) {
+      alert("빈칸이 없어요. 단어를 지우고 다시 눌러 주세요.");
+      return;
+    }
+    if (ordered.length === 0) {
+      alert("이 주제에서 더 넣을 단어가 없어요.");
+      return;
+    }
+    const next = [...words];
+    ordered.slice(0, emptyRows.length).forEach((w, k) => {
+      next[emptyRows[k]] = { english: w.english, korean: w.korean };
+    });
+    setWords(next);
+    if (!title.trim()) setTitle(`${fillTheme} 단어`);
   }
 
   // 카메라로 인식된 단어들을 폼에 채워넣기
@@ -475,7 +530,10 @@ export default function ParentPage() {
                       </label>
                       <select
                         value={c.grade}
-                        onChange={(e) => handleChildSetting(c, { grade: Number(e.target.value) })}
+                        onChange={(e) =>
+                          // 학년을 직접 바꾸면 레벨 테스트 결과 대신 학년 기준으로
+                          handleChildSetting(c, { grade: Number(e.target.value), start_level: null })
+                        }
                         disabled={!c.auto_lesson}
                         className="px-2 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-50"
                         aria-label={`${c.name} 학년`}
@@ -496,13 +554,37 @@ export default function ParentPage() {
                         ))}
                       </select>
                     </div>
+                    {c.auto_lesson && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        <span>
+                          {c.start_level ? (
+                            <>
+                              레벨 테스트 결과: <b className="text-gray-700">{LEVEL_LABELS[c.start_level]}</b>부터
+                            </>
+                          ) : c.placement_done_at ? (
+                            "학년 기준으로 시작"
+                          ) : (
+                            "레벨 테스트 전 · 학년 기준으로 시작 (자녀 모드에서 테스트할 수 있어요)"
+                          )}
+                        </span>
+                        {c.placement_done_at && (
+                          <button
+                            onClick={() => handleChildSetting(c, { start_level: null, placement_done_at: null })}
+                            className="underline hover:text-primary-600"
+                          >
+                            레벨 테스트 다시 하기
+                          </button>
+                        )}
+                      </div>
+                    )}
                     </div>
                   ))}
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-4">
-                오늘의 학습: 아이가 앱을 열면 학년에 맞는 새 단어와 잊어버릴 때가 된 복습 단어를 자동으로 내줘요.
-                숙제를 등록한 날은 새 단어 없이 복습만 해요. 학년을 바꾸면 다음 날 학습부터 적용돼요.
+                오늘의 학습: 아이가 앱을 열면 수준에 맞는 새 단어와 잊어버릴 때가 된 복습 단어를 자동으로 내줘요.
+                숙제를 등록한 날은 새 단어 없이 복습만 해요. 최근 정답률이 높으면 새 단어를 늘리고, 낮거나 복습이 밀리면 줄여요.
+                학년을 바꾸면 레벨 테스트 결과 대신 학년 기준으로 다음 날부터 적용돼요.
               </p>
             </div>
 
@@ -596,6 +678,36 @@ export default function ParentPage() {
                     </p>
                   </div>
 
+                  {/* 주제별 단어장에서 채우기 */}
+                  <div className="mb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={fillTheme}
+                        onChange={(e) => setFillTheme(e.target.value)}
+                        className="px-3 py-2 rounded-xl border-2 border-gray-200 bg-white text-sm"
+                        aria-label="단어장 주제"
+                      >
+                        <option value="">📚 단어장에서 채우기 (주제 선택)</option>
+                        {themeOptions.map((t) => (
+                          <option key={t.theme} value={t.theme}>
+                            {THEME_EMOJI[t.theme] ?? "📖"} {t.theme} · {t.count}단어
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleFillFromTheme}
+                        disabled={!fillTheme}
+                        className="py-2 px-4 rounded-xl bg-primary-50 text-primary-600 font-bold text-sm hover:bg-primary-100 disabled:opacity-50"
+                      >
+                        빈칸 채우기
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 ml-1">
+                      고른 주제에서 {selectedChild?.name ?? "아이"}가 아직 안 배운 단어부터 빈칸에 넣어 줘요. 넣은 뒤 고쳐도 돼요.
+                    </p>
+                  </div>
+
                   <div className="space-y-3">
                     <div className="grid grid-cols-12 gap-2 text-sm font-medium text-gray-500 px-1">
                       <div className="col-span-1">#</div>
@@ -662,12 +774,18 @@ export default function ParentPage() {
                                     자동
                                   </span>
                                 )}
+                                {ws.source === "theme" && (
+                                  <span className="mr-2 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">
+                                    단어장
+                                  </span>
+                                )}
                                 <span className="font-medium text-gray-800">
                                   {ws.title || formatDate(ws.date)}
                                 </span>
                                 <span className="text-sm text-gray-400 ml-2">
                                   {ws.words?.length || 0}개 단어
                                 </span>
+                                {ws.note && <span className="block text-xs text-gray-400 mt-0.5">{ws.note}</span>}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
