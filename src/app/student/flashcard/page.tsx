@@ -5,14 +5,14 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, ChevronLeft, ChevronRight, RotateCcw, Check } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveBatchLearningRecords, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveBatchLearningRecords, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 
 function FlashcardContent() {
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
-  const { user } = useAuth();
+  const child = useActiveChild();
   const [words, setWords] = useState<Word[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -34,13 +34,13 @@ function FlashcardContent() {
         moduleType: "flashcard" as const,
         isCorrect: true,
       }));
-      saveBatchLearningRecords(records, user?.id);
-      addReward("trophy", "플래시카드 완주! 모든 단어를 외웠어요 🎉", "flashcard", user?.id);
+      saveBatchLearningRecords(records, child.id);
+      addReward("trophy", "플래시카드 완주! 모든 단어를 외웠어요 🎉", "flashcard", child.id);
     }
   }, [allLearned]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);

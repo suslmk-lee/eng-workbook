@@ -5,10 +5,10 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, Mic, RotateCcw, Check, X, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
@@ -60,7 +60,7 @@ function getRecognition(): any | null {
 }
 
 function SpeakingContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -87,7 +87,7 @@ function SpeakingContent() {
   }, [setId]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -145,7 +145,7 @@ function SpeakingContent() {
     if (pass) {
       setJudged("pass");
       setResults((r) => [...r, { word: currentWord, correct: true }]);
-      saveLearningRecord(currentWord.id, "speaking", true, undefined, user?.id);
+      saveLearningRecord(currentWord.id, "speaking", true, undefined, child.id);
       const newCombo = combo + 1;
       setCombo(newCombo);
       setFeedback({ show: true, isCorrect: true });
@@ -155,7 +155,7 @@ function SpeakingContent() {
     } else if (attemptNo >= MAX_ATTEMPTS) {
       setJudged("fail");
       setResults((r) => [...r, { word: currentWord, correct: false }]);
-      saveLearningRecord(currentWord.id, "speaking", false, undefined, user?.id);
+      saveLearningRecord(currentWord.id, "speaking", false, undefined, child.id);
       setCombo(0);
       setFeedback({ show: true, isCorrect: false });
       playWrongSound();
@@ -182,9 +182,9 @@ function SpeakingContent() {
     setFinished(true);
     const correctCount = results.filter((r) => r.correct).length;
     if (correctCount === words.length) {
-      await addReward("trophy", "발음 챌린지 만점! 🏆", "speaking", user?.id);
+      await addReward("trophy", "발음 챌린지 만점! 🏆", "speaking", child.id);
     } else if (correctCount >= words.length * 0.8) {
-      await addReward("star", "발음 챌린지 80% 이상! ⭐", "speaking", user?.id);
+      await addReward("star", "발음 챌린지 80% 이상! ⭐", "speaking", child.id);
     }
   }
 

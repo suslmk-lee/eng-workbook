@@ -5,16 +5,16 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Volume2, RotateCcw, Check, X, ArrowRight } from "lucide-react";
 import { Word, WordSet } from "@/lib/types";
-import { getWordSets, saveLearningRecord, addReward } from "@/lib/api";
+import { getWordSetsByChild, saveLearningRecord, addReward } from "@/lib/api";
 import { speakEnglish } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import { useKeyboardOpen } from "@/lib/use-keyboard-open";
 import AnswerFeedback from "@/components/AnswerFeedback";
 import { playCorrectSound, playWrongSound, playComboSound } from "@/lib/sound";
 
 function SpellingContent() {
-  const { user } = useAuth();
+  const child = useActiveChild();
   const searchParams = useSearchParams();
   const setId = searchParams.get("setId");
   const [words, setWords] = useState<Word[]>([]);
@@ -49,7 +49,7 @@ function SpellingContent() {
   }, [currentIndex, submitted]);
 
   async function loadWords() {
-    const sets = await getWordSets();
+    const sets = await getWordSetsByChild(child.id);
     const targetSet = sets.find((s: WordSet) => s.id === setId) || sets[0];
     if (targetSet?.words) {
       setWords(targetSet.words);
@@ -67,7 +67,7 @@ function SpellingContent() {
     setSubmitted(true);
     setResults([...results, { word: currentWord, correct }]);
 
-    saveLearningRecord(currentWord.id, "spelling", correct, undefined, user?.id);
+    saveLearningRecord(currentWord.id, "spelling", correct, undefined, child.id);
 
     const newCombo = correct ? combo + 1 : 0;
     setCombo(newCombo);
@@ -104,9 +104,9 @@ function SpellingContent() {
     setFinished(true);
     const correctCount = results.filter((r) => r.correct).length;
     if (correctCount === words.length) {
-      await addReward("trophy", "스펠링 입력 만점! 🏆", "spelling", user?.id);
+      await addReward("trophy", "스펠링 입력 만점! 🏆", "spelling", child.id);
     } else if (correctCount >= words.length * 0.8) {
-      await addReward("star", "스펠링 입력 80% 이상! ⭐", "spelling", user?.id);
+      await addReward("star", "스펠링 입력 80% 이상! ⭐", "spelling", child.id);
     }
   }
 

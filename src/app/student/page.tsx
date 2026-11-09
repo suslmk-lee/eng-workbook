@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Star,
@@ -14,7 +13,7 @@ import {
   Zap,
   BookOpen,
   RefreshCw,
-  LogOut,
+  Users,
   Trophy,
   Flame,
   RotateCcw,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import { WordSet, MODULE_LIST, ModuleInfo, ModuleType } from "@/lib/types";
 import { getLatestWordSet, getWordsForReview, getTodayStats, TodayStats } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
+import { useActiveChild } from "@/lib/child-mode";
 import TtsModeToggle from "@/components/TtsModeToggle";
 
 const iconMap: Record<string, any> = {
@@ -83,41 +82,31 @@ function ScoreGauge({ score }: { score: number }) {
 }
 
 export default function StudentPage() {
-  const router = useRouter();
-  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const child = useActiveChild();
   const [wordSet, setWordSet] = useState<WordSet | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [slowNetwork, setSlowNetwork] = useState(false);
 
-  const userId = user?.id;
-  // profile이 아직 fetch되지 않았으면 user_metadata의 role을 사용
-  const role = profile?.role ?? (user?.user_metadata?.role as string | undefined);
-
   useEffect(() => {
-    if (authLoading) return;
-    if (!userId) { router.replace("/login"); return; }
-    if (!role) { router.replace("/login"); return; }
-    if (role !== "student") { router.replace("/login"); return; }
     loadData();
-  }, [userId, role, authLoading]);
+  }, [child.id]);
 
   // 5초 이상 로딩 중이면 느린 연결 메시지 표시
   useEffect(() => {
-    if (!authLoading && !loading) { setSlowNetwork(false); return; }
+    if (!loading) { setSlowNetwork(false); return; }
     const tid = setTimeout(() => setSlowNetwork(true), 5000);
     return () => clearTimeout(tid);
-  }, [authLoading, loading]);
+  }, [loading]);
 
   async function loadData() {
-    if (!user) return;
     setLoading(true);
     try {
       const [ws, reviewWords, stats] = await Promise.all([
-        getLatestWordSet(user.id),
-        getWordsForReview(user.id),
-        getTodayStats(user.id),
+        getLatestWordSet(child.id),
+        getWordsForReview(child.id),
+        getTodayStats(child.id),
       ]);
       setWordSet(ws);
       setReviewCount(reviewWords?.length ?? 0);
@@ -127,12 +116,12 @@ export default function StudentPage() {
     }
   }
 
-  async function handleSignOut() {
-    await signOut();
-    router.replace("/login");
+  // 다른 자녀로 바꾸거나 부모 메뉴로 가는 화면 (부모 메뉴는 PIN 필요)
+  function goProfiles() {
+    window.location.assign("/profiles");
   }
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -161,7 +150,7 @@ export default function StudentPage() {
           <div className="text-6xl mb-4">😢</div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">아직 단어가 없어요</h2>
           <p className="text-gray-500 mb-6">부모님에게 오늘의 단어를 등록해달라고 부탁해요!</p>
-          <button onClick={handleSignOut} className="btn-primary inline-block">로그아웃</button>
+          <button onClick={goProfiles} className="btn-primary inline-block">프로필 바꾸기</button>
         </div>
       </div>
     );
@@ -179,7 +168,7 @@ export default function StudentPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">공부하기 📚</h1>
-            <p className="text-sm text-gray-500">{profile?.name}님 화이팅!</p>
+            <p className="text-sm text-gray-500">{child.name} 화이팅!</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm">
@@ -187,11 +176,12 @@ export default function StudentPage() {
               <span className="font-bold text-gray-800 text-sm">{todayRewards}</span>
             </div>
             <button
-              onClick={handleSignOut}
-              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-              title="로그아웃"
+              onClick={goProfiles}
+              className="p-2 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded-xl transition-colors"
+              title="프로필 바꾸기"
+              aria-label="프로필 바꾸기"
             >
-              <LogOut className="w-5 h-5" />
+              <Users className="w-5 h-5" />
             </button>
           </div>
         </div>
