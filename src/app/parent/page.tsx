@@ -36,7 +36,7 @@ import {
   getDailyStatsRange,
   DailyStats,
 } from "@/lib/api";
-import { formatDate, getTodayString, getAccuracyColor } from "@/lib/utils";
+import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
 import { isStudentEmail, loginIdFromEmail, isValidPin, isValidLoginId } from "@/lib/pin-auth";
@@ -863,7 +863,7 @@ function DailyStatsSection({
 
   // 히트맵 그리드: 7열(요일) x N행, 가장 오래된 날부터
   // 시작 요일을 맞추기 위해 패딩
-  const firstDate = dailyStats[0] ? new Date(dailyStats[0].date) : new Date();
+  const firstDate = dailyStats[0] ? parseLocalDate(dailyStats[0].date) : new Date();
   const startDow = firstDate.getDay(); // 0(일) ~ 6(토)
   const paddedCells: (DailyStats | null)[] = Array(startDow).fill(null).concat(dailyStats);
 
