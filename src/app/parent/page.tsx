@@ -22,9 +22,10 @@ import {
   Pencil,
   Play,
   UserCog,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import CameraOcr from "@/components/CameraOcr";
+import CameraOcr, { CameraWord } from "@/components/CameraOcr";
 import TermsGate, { needsConsent } from "@/components/TermsGate";
 import DeleteAccountDialog from "@/components/DeleteAccountDialog";
 import LegalFooter from "@/components/LegalFooter";
@@ -53,7 +54,9 @@ import {
   DailyStats,
   getMyTermsVersion,
   changePassword,
+  lookupMeanings,
 } from "@/lib/api";
+import { normalizeEnglish } from "@/lib/meaning";
 import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
 import { useAuth, isLegacyStudent } from "@/lib/auth-context";
 import { isParentUnlocked, setParentUnlocked } from "@/lib/child-mode";
@@ -61,6 +64,16 @@ import { isParentUnlocked, setParentUnlocked } from "@/lib/child-mode";
 interface WordInput {
   english: string;
   korean: string;
+  auto?: boolean; // 뜻을 자동으로 채움 (부모가 고치면 false)
+}
+
+// 뜻이 비어 있는 칸에 찾은 뜻을 넣는다
+function withMeanings(list: WordInput[], meanings: Map<string, string>): WordInput[] {
+  return list.map((w) => {
+    if (w.korean.trim() || !w.english.trim()) return w;
+    const k = meanings.get(normalizeEnglish(w.english));
+    return k ? { ...w, korean: k, auto: true } : w;
+  });
 }
 
 const emptyWords = (): WordInput[] =>
@@ -102,6 +115,10 @@ export default function ParentPage() {
   const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  // 뜻 자동 채우기
+  const [lookingUp, setLookingUp] = useState<number[]>([]); // 뜻을 찾는 중인 줄
+  const [meaningBusy, setMeaningBusy] = useState(false);
+  const [meaningMsg, setMeaningMsg] = useState("");
 
   const userId = user?.id;
   const legacy = isLegacyStudent(user, profile);
@@ -243,13 +260,27 @@ export default function ParentPage() {
       alert("자녀를 먼저 선택해주세요.");
       return;
     }
-    const validWords = words.filter((w) => w.english.trim() && w.korean.trim());
+    setLoading(true);
+    let list = words;
+    if (list.some((w) => w.english.trim() && !w.korean.trim())) {
+      const { meanings } = await findMeanings(list);
+      list = withMeanings(list, meanings);
+      const stillMissing = list.filter((w) => w.english.trim() && !w.korean.trim()).map((w) => w.english.trim());
+      if (stillMissing.length > 0) {
+        setLoading(false);
+        alert(`뜻을 찾지 못한 단어가 있어요: ${stillMissing.join(", ")}\n뜻을 직접 입력하거나 그 줄의 영어를 지워주세요.`);
+        return;
+      }
+    }
+    const validWords = list
+      .filter((w) => w.english.trim() && w.korean.trim())
+      .map((w) => ({ english: w.english.trim(), korean: w.korean.trim() }));
     if (validWords.length === 0) {
+      setLoading(false);
       alert("최소 1개 이상의 단어를 입력해주세요.");
       return;
     }
 
-    setLoading(true);
     const result = await createWordSet(
       title || `${date} 숙제`,
       date,
@@ -261,6 +292,7 @@ export default function ParentPage() {
       setTitle("");
       setDate(getTodayString());
       setWords(emptyWords());
+      setMeaningMsg("");
       await loadData();
       alert(`${validWords.length}개 단어가 등록되었습니다!`);
     } else {
@@ -276,9 +308,50 @@ export default function ParentPage() {
   }
 
   function updateWord(index: number, field: "english" | "korean", value: string) {
-    const newWords = [...words];
-    newWords[index] = { ...newWords[index], [field]: value };
-    setWords(newWords);
+    setWords((prev) =>
+      prev.map((w, i) => {
+        if (i !== index) return w;
+        if (field === "korean") return { ...w, korean: value, auto: false };
+        // 영어를 고치면 자동으로 넣은 뜻은 맞지 않으니 비운다 (칸을 벗어나면 다시 찾음)
+        return { ...w, english: value, korean: w.auto ? "" : w.korean, auto: false };
+      })
+    );
+  }
+
+  // 영어만 있고 뜻이 빈 줄의 뜻 찾기 (사전 → AI). onlyIndex가 있으면 그 줄만
+  async function findMeanings(list: WordInput[], onlyIndex?: number) {
+    const targets = list
+      .map((w, i) => ({ w, i }))
+      .filter(({ w, i }) => (onlyIndex === undefined || i === onlyIndex) && w.english.trim() && !w.korean.trim());
+    if (targets.length === 0) return { meanings: new Map<string, string>(), targets, aiUnavailable: false };
+    setLookingUp((prev) => [...prev, ...targets.map((t) => t.i)]);
+    const { meanings, aiUnavailable } = await lookupMeanings(targets.map((t) => t.w.english));
+    setLookingUp((prev) => prev.filter((i) => !targets.some((t) => t.i === i)));
+    setWords((prev) => withMeanings(prev, meanings));
+    return { meanings, targets, aiUnavailable };
+  }
+
+  function handleEnglishBlur(index: number) {
+    const w = words[index];
+    if (w?.english.trim() && !w.korean.trim()) void findMeanings(words, index);
+  }
+
+  async function handleAutoMeanings() {
+    setMeaningMsg("");
+    setMeaningBusy(true);
+    const { meanings, targets, aiUnavailable } = await findMeanings(words);
+    setMeaningBusy(false);
+    if (targets.length === 0) {
+      setMeaningMsg("뜻이 비어 있는 단어가 없어요.");
+      return;
+    }
+    const missing = targets.filter((t) => !meanings.get(normalizeEnglish(t.w.english))).map((t) => t.w.english.trim());
+    const filled = targets.length - missing.length;
+    if (missing.length === 0) setMeaningMsg(`${filled}개 단어의 뜻을 채웠어요. 틀린 뜻은 고쳐주세요.`);
+    else
+      setMeaningMsg(
+        `${filled}개를 채웠고, ${missing.join(", ")}의 뜻은 ${aiUnavailable ? "지금 찾을 수 없어요" : "찾지 못했어요"}. 직접 입력해주세요.`
+      );
   }
 
   // 주제별 단어장에서 빈칸 채우기: 아이가 안 배운 단어 → 배운 단어 순, 폼에 이미 있는 단어는 제외
@@ -314,7 +387,7 @@ export default function ParentPage() {
   }
 
   // 카메라로 인식된 단어들을 폼에 채워넣기
-  function handleWordsFromCamera(detectedWords: { english: string; korean: string }[]) {
+  function handleWordsFromCamera(detectedWords: CameraWord[]) {
     setShowCamera(false);
     if (detectedWords.length === 0) return;
 
@@ -324,22 +397,19 @@ export default function ParentPage() {
 
     for (let i = 0; i < newWords.length && filledCount < detectedWords.length; i++) {
       if (!newWords[i].english && !newWords[i].korean) {
-        newWords[i] = {
-          english: detectedWords[filledCount].english,
-          korean: detectedWords[filledCount].korean,
-        };
+        const d = detectedWords[filledCount];
+        newWords[i] = { english: d.english, korean: d.korean, auto: d.auto };
         filledCount++;
       }
     }
 
     // 남은 단어가 있으면 추가 슬롯 생성
-    const remainingWords = detectedWords.slice(filledCount);
-    for (const word of remainingWords) {
-      newWords.push(word);
+    for (const d of detectedWords.slice(filledCount)) {
+      newWords.push({ english: d.english, korean: d.korean, auto: d.auto });
     }
 
     setWords(newWords);
-    alert(`${detectedWords.length}개 단어가 인식되어 입력되었습니다!`);
+    setMeaningMsg(`사진에서 ${detectedWords.length}개 단어를 넣었어요. 확인하고 등록해주세요.`);
   }
 
   async function toggleExpand(setId: string) {
@@ -775,10 +845,10 @@ export default function ParentPage() {
                       className="flex items-center gap-2 py-2 px-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-bold hover:opacity-90 transition-opacity text-sm"
                     >
                       <Camera className="w-4 h-4" />
-                      📷 카메라로 단어 찍어 등록
+                      📷 사진으로 단어 등록
                     </button>
                     <p className="text-xs text-gray-400 mt-1 ml-1">
-                      교재나 노트를 카메라로 찍으면 자동으로 단어를 인식해줍니다
+                      교재나 노트를 찍으면 영어 단어를 읽어 오고, 뜻도 자동으로 채워줘요
                     </p>
                   </div>
 
@@ -812,6 +882,27 @@ export default function ParentPage() {
                     </p>
                   </div>
 
+                  {/* 뜻 자동 채우기 */}
+                  <div className="mb-4">
+                    <button
+                      type="button"
+                      onClick={handleAutoMeanings}
+                      disabled={meaningBusy}
+                      className="flex items-center gap-2 py-2 px-4 rounded-xl bg-yellow-50 text-yellow-700 font-bold text-sm hover:bg-yellow-100 disabled:opacity-50"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {meaningBusy ? "뜻 찾는 중..." : "뜻 자동 채우기"}
+                    </button>
+                    <p className="text-xs text-gray-400 mt-1 ml-1">
+                      영어만 쓰면 뜻은 자동으로 채워요. 사전에 없는 단어는 AI가 초등학생 눈높이로 찾아요.
+                    </p>
+                    {meaningMsg && (
+                      <p className="text-sm text-gray-600 mt-2 ml-1" role="status">
+                        {meaningMsg}
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-3">
                     <div className="grid grid-cols-12 gap-2 text-sm font-medium text-gray-500 px-1">
                       <div className="col-span-1">#</div>
@@ -828,18 +919,29 @@ export default function ParentPage() {
                             type="text"
                             value={word.english}
                             onChange={(e) => updateWord(i, "english", e.target.value)}
+                            onBlur={() => handleEnglishBlur(i)}
                             placeholder="apple"
                             className="input-field text-sm"
+                            aria-label={`${i + 1}번 영어`}
                           />
                         </div>
-                        <div className="col-span-6">
+                        <div className="col-span-6 relative">
                           <input
                             type="text"
                             value={word.korean}
                             onChange={(e) => updateWord(i, "korean", e.target.value)}
-                            placeholder="사과"
-                            className="input-field text-sm"
+                            placeholder={lookingUp.includes(i) ? "뜻 찾는 중..." : "사과"}
+                            className={`input-field text-sm ${word.auto ? "pr-12" : ""}`}
+                            aria-label={`${i + 1}번 뜻`}
                           />
+                          {word.auto && (
+                            <span
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded"
+                              title="뜻을 자동으로 채웠어요. 틀리면 고쳐주세요."
+                            >
+                              자동
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
