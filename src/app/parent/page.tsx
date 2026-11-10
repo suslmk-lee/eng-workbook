@@ -21,8 +21,14 @@ import {
   Camera,
   Pencil,
   Play,
+  UserCog,
 } from "lucide-react";
+import Link from "next/link";
 import CameraOcr from "@/components/CameraOcr";
+import TermsGate, { needsConsent } from "@/components/TermsGate";
+import DeleteAccountDialog from "@/components/DeleteAccountDialog";
+import LegalFooter from "@/components/LegalFooter";
+import { ChildPrivacySummary } from "@/components/ConsentChecklist";
 import TtsStatusBadge from "@/components/TtsStatusBadge";
 import ParentPinDialog from "@/components/ParentPinDialog";
 import LegacyStudentNotice from "@/components/LegacyStudentNotice";
@@ -45,6 +51,8 @@ import {
   hasParentPin,
   getDailyStatsRange,
   DailyStats,
+  getMyTermsVersion,
+  changePassword,
 } from "@/lib/api";
 import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
 import { useAuth, isLegacyStudent } from "@/lib/auth-context";
@@ -61,7 +69,7 @@ const emptyWords = (): WordInput[] =>
 export default function ParentPage() {
   const router = useRouter();
   const { user, profile, loading: authLoading, signOut } = useAuth();
-  const [tab, setTab] = useState<"register" | "dashboard" | "children">("children");
+  const [tab, setTab] = useState<"register" | "dashboard" | "children" | "account">("children");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(getTodayString());
   const [words, setWords] = useState<WordInput[]>(emptyWords());
@@ -85,6 +93,15 @@ export default function ParentPage() {
   const [gateChecked, setGateChecked] = useState(false); // 부모 PIN 잠금 확인 끝
   const [hasPin, setHasPin] = useState(false);
   const [pinDialog, setPinDialog] = useState<"setup" | "change" | null>(null);
+  // 약관 동의: 동의한 버전 (null: 동의 기록 없음, undefined: 아직 모름/조회 실패)
+  const [termsVersion, setTermsVersion] = useState<string | null | undefined>(undefined);
+  const [childConsent, setChildConsent] = useState(false); // 자녀 추가 시 법정대리인 동의
+  const [showChildConsentDetail, setShowChildConsentDetail] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const userId = user?.id;
   const legacy = isLegacyStudent(user, profile);
@@ -101,8 +118,10 @@ export default function ParentPage() {
         return;
       }
       setHasPin(pin);
+      // 약관·자녀 동의 확인에 필요한 값을 먼저 읽고 화면을 연다
+      const [terms] = await Promise.all([getMyTermsVersion(userId), loadChildren()]);
+      setTermsVersion(terms);
       setGateChecked(true);
-      loadChildren();
     })();
   }, [userId, legacy, authLoading]);
 
@@ -168,6 +187,10 @@ export default function ParentPage() {
     e.preventDefault();
     const name = childName.trim();
     if (!name) return;
+    if (!childConsent) {
+      setCreateError("자녀 개인정보 수집·이용에 동의해주세요.");
+      return;
+    }
     setCreateLoading(true);
     setCreateError("");
     const { child, error } = await createChild(name, childGrade);
@@ -175,6 +198,7 @@ export default function ParentPage() {
       setCreateError("자녀를 추가하지 못했어요. 이름은 1~30자로 입력해주세요.");
     } else {
       setChildName("");
+      setChildConsent(false);
       await loadChildren();
       setSelectedChildId(child.id);
     }
@@ -335,6 +359,29 @@ export default function ParentPage() {
     router.replace("/login");
   }
 
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPasswordMsg(null);
+    if (newPassword.length < 6) {
+      setPasswordMsg({ ok: false, text: "비밀번호는 6자 이상이어야 해요." });
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      setPasswordMsg({ ok: false, text: "두 비밀번호가 서로 달라요." });
+      return;
+    }
+    setPasswordSaving(true);
+    const { error } = await changePassword(newPassword);
+    setPasswordSaving(false);
+    if (error) {
+      setPasswordMsg({ ok: false, text: error });
+    } else {
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setPasswordMsg({ ok: true, text: "비밀번호를 바꿨어요." });
+    }
+  }
+
   if (legacy) return <LegacyStudentNotice />;
 
   if (authLoading || !gateChecked) {
@@ -342,6 +389,21 @@ export default function ParentPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-4xl animate-bounce-slow">📚</div>
       </div>
+    );
+  }
+
+  if (needsConsent(termsVersion, children)) {
+    return (
+      <TermsGate
+        termsVersion={termsVersion ?? null}
+        email={user?.email ?? profile?.email ?? ""}
+        childList={children}
+        onAgreed={async () => {
+          await loadChildren();
+          setTermsVersion(await getMyTermsVersion(userId!));
+        }}
+        onSignOut={handleSignOut}
+      />
     );
   }
 
@@ -439,6 +501,17 @@ export default function ParentPage() {
             <BarChart3 className="w-5 h-5" />
             학습 현황
           </button>
+          <button
+            onClick={() => setTab("account")}
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium transition-all whitespace-nowrap ${
+              tab === "account"
+                ? "bg-primary-500 text-white shadow-md"
+                : "bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <UserCog className="w-5 h-5" />
+            내 계정
+          </button>
         </div>
 
         {/* Children Tab */}
@@ -452,20 +525,21 @@ export default function ParentPage() {
               <p className="text-sm text-gray-500 mb-4">
                 아이는 따로 로그인하지 않아요. 이 기기에서 <b>자녀 모드</b>를 누르고 아이 이름을 고르면 공부를 시작해요.
               </p>
-              <div className="flex gap-3">
+              {/* 휴대폰에서는 이름 칸이 한 줄을 차지하고, 학년·추가 버튼은 다음 줄 */}
+              <div className="flex flex-wrap sm:flex-nowrap gap-3">
                 <input
                   type="text"
                   value={childName}
                   onChange={(e) => setChildName(e.target.value)}
-                  placeholder="이름 (예: 민준)"
+                  placeholder="이름 또는 별명 (예: 민준)"
                   maxLength={30}
-                  className="input-field flex-1"
+                  className="input-field w-full sm:w-auto sm:flex-1"
                   required
                 />
                 <select
                   value={childGrade}
                   onChange={(e) => setChildGrade(Number(e.target.value))}
-                  className="input-field w-28"
+                  className="input-field flex-1 sm:flex-none sm:w-28"
                   aria-label="학년"
                 >
                   {GRADE_OPTIONS.map((g) => (
@@ -474,11 +548,41 @@ export default function ParentPage() {
                 </select>
                 <button
                   type="submit"
-                  disabled={createLoading}
+                  disabled={createLoading || !childConsent}
                   className="btn-primary px-6 whitespace-nowrap disabled:opacity-50"
                 >
                   {createLoading ? "추가 중..." : "추가"}
                 </button>
+              </div>
+              <div className="mt-3 text-sm">
+                <div className="flex items-start gap-2">
+                  <label className="flex items-start gap-2 flex-1 text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={childConsent}
+                      onChange={(e) => setChildConsent(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 accent-primary-500 shrink-0"
+                    />
+                    <span>
+                      <span className="text-primary-600 font-medium">[필수]</span> 아이의 보호자(법정대리인)로서 아이의
+                      이름·학년·학습 기록을 학습 서비스에 이용하는 데 동의합니다.
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowChildConsentDetail((v) => !v)}
+                    className="text-xs text-gray-400 hover:text-gray-600 shrink-0 mt-0.5"
+                    aria-expanded={showChildConsentDetail}
+                  >
+                    내용 {showChildConsentDetail ? "닫기" : "보기"}
+                  </button>
+                </div>
+                {showChildConsentDetail && (
+                  <div className="mt-2 ml-6 p-3 bg-gray-50 rounded-xl text-xs text-gray-600 leading-relaxed">
+                    <ChildPrivacySummary />
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-2 ml-6">실명 대신 별명을 써도 괜찮아요.</p>
               </div>
               {createError && (
                 <p className="text-red-500 text-sm mt-2">{createError}</p>
@@ -908,7 +1012,89 @@ export default function ParentPage() {
             />
           </div>
         )}
+
+        {/* 내 계정 */}
+        {tab === "account" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-6 shadow-md">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">계정 정보</h2>
+              <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
+                <dt className="text-gray-500">이름</dt>
+                <dd className="text-gray-800">{profile?.name || "-"}</dd>
+                <dt className="text-gray-500">이메일</dt>
+                <dd className="text-gray-800 break-all">{user?.email ?? profile?.email}</dd>
+                <dt className="text-gray-500">약관 동의</dt>
+                <dd className="text-gray-800">
+                  {termsVersion ? `${termsVersion} 버전에 동의함` : "-"}
+                  <span className="text-gray-400">
+                    {" "}(
+                    <Link href="/terms" target="_blank" className="underline hover:text-gray-600">이용약관</Link>
+                    {" · "}
+                    <Link href="/privacy" target="_blank" className="underline hover:text-gray-600">개인정보 처리방침</Link>
+                    )
+                  </span>
+                </dd>
+              </dl>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="bg-white rounded-3xl p-6 shadow-md space-y-3">
+              <h2 className="text-xl font-bold text-gray-800">비밀번호 바꾸기</h2>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="새 비밀번호 (6자 이상)"
+                autoComplete="new-password"
+                aria-label="새 비밀번호"
+                className="input-field w-full"
+                minLength={6}
+                required
+              />
+              <input
+                type="password"
+                value={newPasswordConfirm}
+                onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                placeholder="새 비밀번호 확인"
+                autoComplete="new-password"
+                aria-label="새 비밀번호 확인"
+                className="input-field w-full"
+                minLength={6}
+                required
+              />
+              {passwordMsg && (
+                <p className={`text-sm ${passwordMsg.ok ? "text-green-600" : "text-red-500"}`}>{passwordMsg.text}</p>
+              )}
+              <button type="submit" disabled={passwordSaving} className="btn-primary px-6 disabled:opacity-50">
+                {passwordSaving ? "저장 중..." : "비밀번호 바꾸기"}
+              </button>
+            </form>
+
+            <div className="bg-white rounded-3xl p-6 shadow-md border-2 border-red-100">
+              <h2 className="text-xl font-bold text-gray-800 mb-2">회원 탈퇴</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                탈퇴하면 계정과 자녀 프로필, 단어 숙제, 학습 기록이 바로 삭제되고 되돌릴 수 없어요.
+                자녀 한 명의 기록만 지우려면 자녀 관리에서 그 자녀를 삭제하세요.
+              </p>
+              <button
+                onClick={() => setDeletingAccount(true)}
+                className="px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"
+              >
+                회원 탈퇴
+              </button>
+            </div>
+          </div>
+        )}
+
+        <LegalFooter className="mt-12" />
       </div>
+
+      {deletingAccount && (
+        <DeleteAccountDialog
+          email={user?.email ?? profile?.email ?? ""}
+          childNames={children.map((c) => c.name)}
+          onCancel={() => setDeletingAccount(false)}
+        />
+      )}
 
       {/* Camera OCR Modal */}
       {showCamera && (

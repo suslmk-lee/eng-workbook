@@ -47,7 +47,12 @@ interface AuthContextType {
   profile: Profile | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string, role: "parent" | "student") => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    name: string,
+    termsVersion: string
+  ) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -144,18 +149,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signUp = async (
-    email: string,
-    password: string,
-    name: string,
-    role: "parent" | "student"
-  ) => {
+  // 학부모 회원가입. 회원가입 화면에서 동의한 약관 버전은 가입 트리거가 profiles에 기록한다.
+  const signUp = async (email: string, password: string, name: string, termsVersion: string) => {
+    const role = "parent";
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, role } },
+      options: {
+        data: { name, role, terms_version: termsVersion },
+        emailRedirectTo: `${window.location.origin}/`,
+      },
     });
-    if (error) return { error: error.message };
+    if (error) {
+      const message = /already registered|already exists/i.test(error.message)
+        ? "이미 가입된 이메일이에요. 로그인하거나 비밀번호 찾기를 이용해주세요."
+        : /at least|weak|short/i.test(error.message)
+          ? "비밀번호는 6자 이상이어야 해요."
+          : /rate limit|security purposes/i.test(error.message)
+            ? "잠시 후에 다시 시도해주세요."
+            : error.message;
+      return { error: message, needsConfirmation: false };
+    }
 
     // 프로필은 DB 트리거(handle_new_user)가 만든다. 트리거가 없는 환경 대비로만 추가하고,
     // 이미 있으면 건드리지 않는다 (클라이언트는 role·email 수정 권한이 없음).
@@ -169,7 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    return { error: null };
+    // 이메일 인증을 켜 둔 환경이면 세션 없이 돌아오고, 메일의 링크를 눌러야 가입이 끝난다
+    return { error: null, needsConfirmation: !data.session };
   };
 
   const signIn = async (email: string, password: string) => {
