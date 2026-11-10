@@ -159,6 +159,60 @@ export async function setParentPin(
   return { error: /current PIN required/i.test(error.message) ? "current_pin_required" : "failed" };
 }
 
+// ============ 약관 동의·계정 ============
+
+// 내가 동의한 약관 버전. 동의 기록이 없으면 null, 조회 실패면 undefined
+export async function getMyTermsVersion(userId: string): Promise<string | null | undefined> {
+  const { data, error } = await supabase.from("profiles").select("terms_version").eq("id", userId).maybeSingle();
+  if (error || !data) return undefined;
+  return data.terms_version ?? null;
+}
+
+// 지금 약관에 동의. withChildren이면 동의 기록이 없는 기존 자녀도 법정대리인 동의로 기록
+export async function agreeTerms(version: string, withChildren: boolean): Promise<boolean> {
+  const { error } = await supabase.rpc("agree_terms", { version, with_children: withChildren });
+  return !error;
+}
+
+// 우리 가족을 관리하는 보호자 계정 수 (나 포함). 조회 실패면 null
+export async function getGuardianCount(): Promise<number | null> {
+  const { count, error } = await supabase.from("family_members").select("user_id", { count: "exact", head: true });
+  return error ? null : count ?? 0;
+}
+
+// 회원 탈퇴. 가족에 다른 보호자가 없으면 자녀·학습 기록까지 모두 삭제된다 (되돌릴 수 없음)
+export async function deleteMyAccount(): Promise<boolean> {
+  const { error } = await supabase.rpc("delete_my_account");
+  return !error;
+}
+
+// 비밀번호 재설정 메일. 가입하지 않은 이메일이어도 같은 결과를 보여준다 (가입 여부 노출 방지)
+export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  if (!error) return { error: null };
+  if (error.status === 429 || /rate limit|security purposes/i.test(error.message)) {
+    return { error: "잠시 후에 다시 시도해주세요. 메일은 짧은 시간에 여러 번 보낼 수 없어요." };
+  }
+  return { error: "메일을 보내지 못했어요. 잠시 후 다시 시도해주세요." };
+}
+
+export async function changePassword(password: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (!error) return { error: null };
+  if (/different from the old/i.test(error.message)) return { error: "지금 쓰는 비밀번호와 다른 비밀번호를 입력해주세요." };
+  if (/at least|weak|short/i.test(error.message)) return { error: "비밀번호는 6자 이상이어야 해요." };
+  if (/session|jwt|expired/i.test(error.message)) return { error: "로그인이 만료되었어요. 다시 로그인한 뒤 시도해주세요." };
+  return { error: "비밀번호를 바꾸지 못했어요. 다시 시도해주세요." };
+}
+
+// 탈퇴처럼 되돌릴 수 없는 작업 전에 비밀번호를 다시 확인
+export async function verifyPassword(email: string, password: string): Promise<boolean> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  return !error;
+}
+
 // ============ Word Sets ============
 
 export async function createWordSet(

@@ -6,6 +6,8 @@ export interface Profile {
   name: string;
   role: UserRole;
   created_at: string;
+  terms_version?: string | null;    // 동의한 약관 버전 (src/lib/legal.ts TERMS_VERSION)
+  terms_agreed_at?: string | null;
 }
 
 // 자녀 프로필: 로그인 계정이 아니라 가족(families)에 속한 프로필.
@@ -19,6 +21,7 @@ export interface Child {
   auto_lesson: boolean;     // 오늘의 학습 자동 구성
   start_level: number | null;        // 레벨 테스트 결과(1~5). 있으면 학년 대신 이 레벨부터
   placement_done_at: string | null;  // 레벨 테스트 본 시각
+  guardian_consent_at?: string | null; // 보호자(법정대리인)가 자녀 정보 처리에 동의한 시각
   created_at: string;
 }
 

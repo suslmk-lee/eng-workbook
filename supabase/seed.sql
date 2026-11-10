@@ -22,7 +22,7 @@ SELECT
   '00000000-0000-0000-0000-000000000000', u.id, 'authenticated', 'authenticated', u.email,
   extensions.crypt('pass1234', extensions.gen_salt('bf')), now(),
   '{"provider": "email", "providers": ["email"]}',
-  jsonb_build_object('name', u.name, 'role', 'parent'),
+  jsonb_build_object('name', u.name, 'role', 'parent', 'terms_version', '2026-11-11'),  -- 약관 동의 (src/lib/legal.ts의 TERMS_VERSION과 같게)
   now(), now(), '', '', '', ''
 FROM (VALUES
   ('a0000000-0000-0000-0000-000000000001'::uuid, 'mom@test.local', '엄마'),
