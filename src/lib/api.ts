@@ -630,6 +630,30 @@ export interface TodayStats {
   rewardCount: number;        // 오늘 획득 보상 수
 }
 
+// ============ 오늘의 목표·연속 학습 (한국 시간 기준, DB가 계산) ============
+
+export type GoalDayStatus = "met" | "rest" | "missed" | "none" | "today";
+
+export interface GoalStatus {
+  today: string;               // YYYY-MM-DD
+  goal_words: number;          // 오늘 목표 단어 수 (숙제가 있으면 숙제, 없으면 오늘의 학습)
+  done_words: number;          // 그중 맞힌 단어 수
+  met: boolean;                // 오늘 도장
+  remaining: string[];         // 아직 못 맞힌 단어
+  streak: number;              // 연속 학습 일수 (오늘 도장 포함)
+  best_streak: number;
+  rest_available: boolean;     // 이번 주 쉬는 날이 남았는지
+  days: { day: string; status: GoalDayStatus }[]; // 이번 달(과 이번 주) 날짜별 상태
+  week_start: string;
+  week: { studied_days: number; met_days: number; answers: number; correct: number; new_words: number };
+}
+
+export async function getGoalStatus(childId: string): Promise<GoalStatus | null> {
+  const { data, error } = await supabase.rpc("get_goal_status", { p_child: childId });
+  if (error || !data) return null;
+  return data as GoalStatus;
+}
+
 export async function getTodayStats(studentId: string): Promise<TodayStats> {
   // 오늘 = 기기 현지 시간 0시 ~ 내일 0시
   const todayStart = localMidnight(0).toISOString();

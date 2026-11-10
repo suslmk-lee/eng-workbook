@@ -90,6 +90,17 @@
   animation: pop-in 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards;
 }
 
+/* 도장 쾅! (오늘의 목표 완료) */
+@keyframes stamp {
+  0%   { transform: scale(2.6) rotate(-25deg); opacity: 0; }
+  55%  { transform: scale(0.9) rotate(-12deg); opacity: 1; }
+  75%  { transform: scale(1.06) rotate(-14deg); }
+  100% { transform: scale(1) rotate(-12deg); opacity: 1; }
+}
+.animate-stamp {
+  animation: stamp 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards;
+}
+
 /* 오답 흔들기 */
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
