@@ -35,7 +35,10 @@ import {
   getDictionary,
   getLearnedWords,
   createThemeLesson,
+  getGoalStatus,
+  GoalStatus,
 } from "@/lib/api";
+import { DailyGoalCard, GoalCelebration } from "@/components/DailyGoal";
 import { getTodayString, formatDateShort } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import TtsModeToggle from "@/components/TtsModeToggle";
@@ -123,6 +126,9 @@ const selectedSetKey = (childId: string) => `ew_selected_set_v1:${childId}`;
 
 const placementLaterKey = (childId: string) => `ew_placement_later_v1:${childId}`;
 
+// 오늘의 목표 축하 화면은 아이마다 하루 한 번만
+const celebratedKey = (childId: string, day: string) => `ew_goal_celebrated_v1:${childId}:${day}`;
+
 function setLabel(set: WordSet): string {
   return set.source === "auto" ? "오늘의 학습" : set.title || "숙제";
 }
@@ -150,6 +156,8 @@ export default function StudentPage() {
   const [showThemes, setShowThemes] = useState(false);
   const [themeBusy, setThemeBusy] = useState<string | null>(null);
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
+  const [goal, setGoal] = useState<GoalStatus | null>(null);
+  const [celebrate, setCelebrate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [slowNetwork, setSlowNetwork] = useState(false);
 
@@ -169,15 +177,22 @@ export default function StudentPage() {
     try {
       // 오늘의 학습을 먼저 만들어야 목록에 포함된다
       const lessonId = await ensureTodayLesson(child.id);
-      const [list, stats, info] = await Promise.all([
+      const [list, stats, info, goalStatus] = await Promise.all([
         getWordSetsByChild(child.id, 30),
         getTodayStats(child.id),
         getChild(child.id).catch(() => null),
+        getGoalStatus(child.id),
       ]);
       setSets(list);
       setTodayLessonId(lessonId);
       setTodayStats(stats);
       setChildInfo(info);
+      setGoal(goalStatus);
+      if (goalStatus?.met) {
+        try {
+          if (!localStorage.getItem(celebratedKey(child.id, goalStatus.today))) setCelebrate(true);
+        } catch {}
+      }
       try { setPlacementLater(sessionStorage.getItem(placementLaterKey(child.id)) === "1"); } catch {}
 
       // 기본 선택: 이 탭에서 고른 세트 > 오늘 숙제 > 오늘의 학습 > 가장 최근 세트
@@ -322,6 +337,9 @@ export default function StudentPage() {
             </button>
           </div>
         </div>
+
+        {/* 오늘의 목표 · 연속 학습 · 도장판 */}
+        {goal && <DailyGoalCard status={goal} />}
 
         {/* Today Score Dashboard */}
         <div className="bg-white rounded-3xl p-6 shadow-md mb-6">
@@ -546,6 +564,16 @@ export default function StudentPage() {
         {/* 오늘의 시험 - 모든 모듈 완료 시 활성화 */}
         <ExamCard wordSetId={wordSet.id} moduleStats={todayStats?.moduleStats ?? {}} />
       </div>
+
+      {celebrate && goal && (
+        <GoalCelebration
+          status={goal}
+          onClose={() => {
+            setCelebrate(false);
+            try { localStorage.setItem(celebratedKey(child.id, goal.today), "1"); } catch {}
+          }}
+        />
+      )}
     </div>
   );
 }

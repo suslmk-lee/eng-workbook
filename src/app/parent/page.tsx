@@ -55,7 +55,10 @@ import {
   getMyTermsVersion,
   changePassword,
   lookupMeanings,
+  getGoalStatus,
+  GoalStatus,
 } from "@/lib/api";
+import { StampCalendar, goalSummaryText } from "@/components/DailyGoal";
 import { normalizeEnglish } from "@/lib/meaning";
 import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
 import { useAuth, isLegacyStudent } from "@/lib/auth-context";
@@ -115,6 +118,8 @@ export default function ParentPage() {
   const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  // 자녀별 오늘의 목표·연속 학습·이번 주 요약
+  const [goals, setGoals] = useState<Record<string, GoalStatus | null>>({});
   // 뜻 자동 채우기
   const [lookingUp, setLookingUp] = useState<number[]>([]); // 뜻을 찾는 중인 줄
   const [meaningBusy, setMeaningBusy] = useState(false);
@@ -145,6 +150,17 @@ export default function ParentPage() {
   useEffect(() => {
     if (selectedChildId) loadData();
   }, [selectedChildId, heatmapDays]);
+
+  useEffect(() => {
+    if (!gateChecked || children.length === 0) return;
+    let cancelled = false;
+    Promise.all(children.map(async (c) => [c.id, await getGoalStatus(c.id)] as const)).then((entries) => {
+      if (!cancelled) setGoals(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [gateChecked, children]);
 
   // 단어 등록 탭: 단어장 주제 목록 (쉬운 주제부터)
   useEffect(() => {
@@ -510,6 +526,35 @@ export default function ParentPage() {
             </button>
           </div>
         </div>
+
+        {/* 오늘 한눈에: 자녀별 오늘의 목표·연속 학습·이번 주 */}
+        {children.length > 0 && Object.keys(goals).length > 0 && (
+          <div className="bg-white rounded-2xl p-4 shadow-md mb-4" aria-label="오늘 한눈에">
+            <p className="font-medium text-gray-700 mb-2">오늘 한눈에</p>
+            <div className="space-y-2">
+              {children.map((c) => {
+                const g = goals[c.id] ?? null;
+                const summary = goalSummaryText(g, c.auto_lesson);
+                return (
+                  <div key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-child={c.name}>
+                    <span className="font-bold text-gray-800 w-16 truncate">{c.name}</span>
+                    <span className="text-gray-700">
+                      {summary.icon} {summary.text}
+                    </span>
+                    {g && (
+                      <>
+                        <span className="text-orange-600 font-medium">🔥 {g.streak}일 연속</span>
+                        <span className="text-gray-500">
+                          이번 주 {g.week.studied_days}일 학습 · 목표 {g.week.met_days}일 달성
+                        </span>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Child Selector */}
         {children.length > 0 && (
@@ -1048,6 +1093,9 @@ export default function ParentPage() {
         {/* Dashboard Tab */}
         {tab === "dashboard" && stats && (
           <div className="space-y-6">
+            {selectedChildId && goals[selectedChildId] && (
+              <WeekGoalCard status={goals[selectedChildId]!} />
+            )}
             {progress && <WordProgressCard progress={progress} />}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-2xl p-5 shadow-md text-center">
@@ -1214,6 +1262,38 @@ export default function ParentPage() {
 const MODULE_LABEL: Record<string, string> = MODULE_SHORT_NAMES;
 
 // 아이별 단어 학습 상태 요약 (망각곡선 복습 기준)
+// 학습 현황: 이번 주 요약 + 이번 달 도장판
+function WeekGoalCard({ status }: { status: GoalStatus }) {
+  const w = status.week;
+  const accuracy = w.answers > 0 ? Math.round((w.correct / w.answers) * 100) : null;
+  const items = [
+    { label: "학습한 날", value: `${w.studied_days}일` },
+    { label: "목표 달성", value: `${w.met_days}일` },
+    { label: "푼 문제 · 정답률", value: `${w.answers}개${accuracy !== null ? ` · ${accuracy}%` : ""}` },
+    { label: "새로 배운 단어", value: `${w.new_words}개` },
+  ];
+  return (
+    <div className="bg-white rounded-3xl p-6 shadow-md" aria-label="이번 주">
+      <div className="flex items-baseline justify-between mb-4">
+        <h3 className="text-lg font-bold text-gray-800">이번 주 (월요일부터)</h3>
+        <span className="text-sm text-orange-600 font-bold">🔥 {status.streak}일 연속 · 최고 {status.best_streak}일</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {items.map((it) => (
+          <div key={it.label} className="bg-gray-50 rounded-2xl p-3 text-center">
+            <div className="text-xl font-extrabold text-gray-800">{it.value}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{it.label}</div>
+          </div>
+        ))}
+      </div>
+      <StampCalendar status={status} />
+      <p className="text-xs text-gray-400 mt-3">
+        오늘의 목표: 그날 숙제(없으면 오늘의 학습) 단어를 모두 한 번 이상 맞히기. 일주일에 하루는 빠져도 연속 기록이 이어져요.
+      </p>
+    </div>
+  );
+}
+
 function WordProgressCard({ progress }: { progress: WordProgressSummary }) {
   const items = [
     { label: "학습한 단어", value: progress.studied, color: "text-primary-600" },
