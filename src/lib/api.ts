@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child, DictionaryWord } from "./types";
 import { localMidnight, toLocalDateString } from "./utils";
+import { MAX_LOOKUP_WORDS, isLookupableEnglish, normalizeEnglish } from "./meaning";
 
 // ============ 전체 행 조회 (페이지 나눠 읽기) ============
 // Supabase(PostgREST)는 한 번에 최대 1000행(프로젝트 기본 max rows)만 돌려준다.
@@ -307,6 +308,78 @@ export function getDictionary(): Promise<DictionaryWord[]> {
     });
   }
   return dictionaryCache;
+}
+
+// ============ 뜻 자동 채우기 ============
+
+// 이 페이지에서 AI로 찾은 뜻 (빈 문자열 = 찾아봤지만 없음)
+const aiMeaningCache = new Map<string, string>();
+
+// 사전에서 뜻 찾기: 그대로 → 복수형이면 단수형으로
+function dictionaryMeaning(dict: Map<string, string>, w: string): string | undefined {
+  if (dict.has(w)) return dict.get(w);
+  const bases = w.endsWith("ies")
+    ? [w.slice(0, -3) + "y"]
+    : w.endsWith("es")
+      ? [w.slice(0, -2), w.slice(0, -1)]
+      : w.endsWith("s")
+        ? [w.slice(0, -1)]
+        : [];
+  for (const b of bases) if (dict.has(b)) return dict.get(b);
+  return undefined;
+}
+
+// 영어 단어들의 한국어 뜻. 공용 사전에 있으면 사전 뜻(무료·즉시), 없으면 서버에서 AI로 찾는다.
+// 결과 키는 normalizeEnglish로 정규화한 영어. 못 찾은 단어는 결과에 없다.
+// aiUnavailable: AI 조회를 못 했을 때(키 미설정·횟수 제한·오류) true
+export async function lookupMeanings(
+  englishList: string[]
+): Promise<{ meanings: Map<string, string>; aiUnavailable: boolean }> {
+  const meanings = new Map<string, string>();
+  const words = Array.from(new Set(englishList.map(normalizeEnglish))).filter(isLookupableEnglish);
+  if (words.length === 0) return { meanings, aiUnavailable: false };
+
+  const dict = new Map((await getDictionary()).map((d) => [normalizeEnglish(d.english), d.korean]));
+  const misses: string[] = [];
+  for (const w of words) {
+    const fromDict = dictionaryMeaning(dict, w);
+    if (fromDict) meanings.set(w, fromDict);
+    else if (aiMeaningCache.has(w)) {
+      const cached = aiMeaningCache.get(w)!;
+      if (cached) meanings.set(w, cached);
+    } else misses.push(w);
+  }
+  if (misses.length === 0) return { meanings, aiUnavailable: false };
+
+  let aiUnavailable = false;
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return { meanings, aiUnavailable: true };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < misses.length; i += MAX_LOOKUP_WORDS) chunks.push(misses.slice(i, i + MAX_LOOKUP_WORDS));
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const res = await fetch("/api/meaning", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ words: chunk }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { meanings?: Record<string, string> };
+        // 실패 응답에도 서버 캐시에서 찾은 뜻은 들어 있을 수 있다
+        for (const [w, k] of Object.entries(data.meanings ?? {})) {
+          if (res.ok) aiMeaningCache.set(w, k);
+          if (k) meanings.set(w, k);
+        }
+        if (!res.ok) aiUnavailable = true;
+      } catch {
+        aiUnavailable = true;
+      }
+    })
+  );
+  return { meanings, aiUnavailable };
 }
 
 // 아이가 학습한 단어 → 연속 정답 횟수(streak)
