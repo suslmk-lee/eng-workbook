@@ -59,7 +59,10 @@ import {
   GoalStatus,
   getRewardsStatus,
   RewardsStatus,
+  getAlphabetProgress,
 } from "@/lib/api";
+import { AlphabetSummary } from "@/components/AlphabetKit";
+import type { LetterProgress } from "@/lib/alphabet";
 import { BadgeSummary, PromiseEditor } from "@/components/Rewards";
 import { StampCalendar, goalSummaryText } from "@/components/DailyGoal";
 import { InstallAppCard, InstallAppSection } from "@/components/InstallAppGuide";
@@ -126,6 +129,7 @@ export default function ParentPage() {
   const [goals, setGoals] = useState<Record<string, GoalStatus | null>>({});
   // 자녀별 배지·보상 약속
   const [rewards, setRewards] = useState<Record<string, RewardsStatus | null>>({});
+  const [alphabet, setAlphabet] = useState<Record<string, LetterProgress> | null>(null); // 고른 자녀의 알파벳
   // 뜻 자동 채우기
   const [lookingUp, setLookingUp] = useState<number[]>([]); // 뜻을 찾는 중인 줄
   const [meaningBusy, setMeaningBusy] = useState(false);
@@ -204,12 +208,14 @@ export default function ParentPage() {
 
   async function loadData() {
     if (!selectedChildId) return;
-    const [sets, dashStats, daily, prog] = await Promise.all([
+    const [sets, dashStats, daily, prog, alpha] = await Promise.all([
       getWordSetsByChild(selectedChildId),
       getDashboardStats(selectedChildId),
       getDailyStatsRange(selectedChildId, heatmapDays),
       getWordProgressSummary(selectedChildId),
+      getAlphabetProgress(selectedChildId),
     ]);
+    setAlphabet(alpha);
     setDailyStats(daily);
     setWordSets(sets);
     setStats(dashStats);
@@ -1127,6 +1133,8 @@ export default function ParentPage() {
               <WeekGoalCard status={goals[selectedChildId]!} />
             )}
             {selectedChildId && rewards[selectedChildId] && <BadgeSummary status={rewards[selectedChildId]!} />}
+            {/* 알파벳: 연습한 적이 있거나 "영어 처음"인 아이만 */}
+            {alphabet && (Object.keys(alphabet).length > 0 || selectedChild?.grade === 0) && <AlphabetSummary progress={alphabet} />}
             {progress && <WordProgressCard progress={progress} />}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-2xl p-5 shadow-md text-center">

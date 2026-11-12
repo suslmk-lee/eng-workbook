@@ -136,7 +136,8 @@ export type ModuleType =
   | "exam"
   | "cloze"       // 문장 빈칸 채우기
   | "ordering"    // 문장 순서 맞추기
-  | "shadowing";  // 문장 따라 말하기
+  | "shadowing"   // 문장 따라 말하기
+  | "alphabet";   // 알파벳 익히기 (보상 기록용. 단어 학습 모듈 목록에는 없음)
 
 export interface ModuleInfo {
   type: ModuleType;
@@ -273,4 +274,5 @@ export const MODULE_SHORT_NAMES: Record<ModuleType, string> = {
   cloze: "문장 빈칸",
   ordering: "문장 순서",
   shadowing: "문장 말하기",
+  alphabet: "알파벳",
 };
