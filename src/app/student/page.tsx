@@ -37,8 +37,15 @@ import {
   createThemeLesson,
   getGoalStatus,
   GoalStatus,
+  getRewardsStatus,
+  markBadgesSeen,
+  RewardsStatus,
+  BadgeState,
+  ChildPromise,
 } from "@/lib/api";
 import { DailyGoalCard, GoalCelebration } from "@/components/DailyGoal";
+import { GrowthCard, PromiseCard, RewardCelebration } from "@/components/Rewards";
+import { newBadges } from "@/lib/badges";
 import { getTodayString, formatDateShort } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
 import TtsModeToggle from "@/components/TtsModeToggle";
@@ -128,6 +135,8 @@ const placementLaterKey = (childId: string) => `ew_placement_later_v1:${childId}
 
 // 오늘의 목표 축하 화면은 아이마다 하루 한 번만
 const celebratedKey = (childId: string, day: string) => `ew_goal_celebrated_v1:${childId}:${day}`;
+// 약속 달성 축하는 약속마다 한 번만
+const promiseCelebratedKey = (promiseId: string) => `ew_promise_celebrated_v1:${promiseId}`;
 
 function setLabel(set: WordSet): string {
   return set.source === "auto" ? "오늘의 학습" : set.title || "숙제";
@@ -158,6 +167,9 @@ export default function StudentPage() {
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
   const [goal, setGoal] = useState<GoalStatus | null>(null);
   const [celebrate, setCelebrate] = useState(false);
+  const [rewards, setRewards] = useState<RewardsStatus | null>(null);
+  // 새 배지·약속 달성 축하 (오늘의 목표 축하 다음에)
+  const [rewardCelebrate, setRewardCelebrate] = useState<{ badges: BadgeState[]; promise: ChildPromise | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [slowNetwork, setSlowNetwork] = useState(false);
 
@@ -177,11 +189,12 @@ export default function StudentPage() {
     try {
       // 오늘의 학습을 먼저 만들어야 목록에 포함된다
       const lessonId = await ensureTodayLesson(child.id);
-      const [list, stats, info, goalStatus] = await Promise.all([
+      const [list, stats, info, goalStatus, rewardsStatus] = await Promise.all([
         getWordSetsByChild(child.id, 30),
         getTodayStats(child.id),
         getChild(child.id).catch(() => null),
         getGoalStatus(child.id),
+        getRewardsStatus(child.id),
       ]);
       setSets(list);
       setTodayLessonId(lessonId);
@@ -192,6 +205,16 @@ export default function StudentPage() {
         try {
           if (!localStorage.getItem(celebratedKey(child.id, goalStatus.today))) setCelebrate(true);
         } catch {}
+      }
+      setRewards(rewardsStatus);
+      if (rewardsStatus) {
+        const fresh = newBadges(rewardsStatus);
+        const p = rewardsStatus.promise;
+        let promiseDone: ChildPromise | null = null;
+        try {
+          if (p && p.progress >= p.target && !localStorage.getItem(promiseCelebratedKey(p.id))) promiseDone = p;
+        } catch {}
+        if (fresh.length > 0 || promiseDone) setRewardCelebrate({ badges: fresh, promise: promiseDone });
       }
       try { setPlacementLater(sessionStorage.getItem(placementLaterKey(child.id)) === "1"); } catch {}
 
@@ -340,6 +363,10 @@ export default function StudentPage() {
 
         {/* 오늘의 목표 · 연속 학습 · 도장판 */}
         {goal && <DailyGoalCard status={goal} />}
+
+        {/* 부모님과의 약속 · 내 성장(외운 단어·배지) */}
+        {rewards?.promise && <PromiseCard promise={rewards.promise} />}
+        {rewards && <GrowthCard status={rewards} />}
 
         {/* Today Score Dashboard */}
         <div className="bg-white rounded-3xl p-6 shadow-md mb-6">
@@ -571,6 +598,21 @@ export default function StudentPage() {
           onClose={() => {
             setCelebrate(false);
             try { localStorage.setItem(celebratedKey(child.id, goal.today), "1"); } catch {}
+          }}
+        />
+      )}
+
+      {!celebrate && rewardCelebrate && (
+        <RewardCelebration
+          badges={rewardCelebrate.badges}
+          promise={rewardCelebrate.promise}
+          onClose={() => {
+            const done = rewardCelebrate;
+            setRewardCelebrate(null);
+            if (done.badges.length > 0) void markBadgesSeen(child.id);
+            if (done.promise) {
+              try { localStorage.setItem(promiseCelebratedKey(done.promise.id), "1"); } catch {}
+            }
           }}
         />
       )}

@@ -654,6 +654,55 @@ export async function getGoalStatus(childId: string): Promise<GoalStatus | null>
   return data as GoalStatus;
 }
 
+// ============ 배지·보상 약속 (DB가 조건 확인·기록) ============
+
+export interface BadgeState {
+  badge: string;
+  metric: string;           // 기준 지표 (metrics의 키)
+  threshold: number;
+  earned_at: string | null; // 받은 시각 (못 받았으면 null)
+  seen: boolean;            // 아이가 축하 화면을 봤는지
+}
+
+export interface ChildPromise {
+  id: string;
+  reward: string;           // 예: 놀이공원 가기
+  target: number;           // 모을 도장 수
+  start_day: string;
+  progress: number;         // 약속한 날부터 찍은 도장 수
+}
+
+export interface RewardsStatus {
+  // studied_days, met_days, best_streak, mastered_words(외운 단어), trophies, placement, sentence_correct
+  metrics: Record<string, number>;
+  badges: BadgeState[];
+  promise: ChildPromise | null; // 진행 중인 약속
+}
+
+// 부를 때마다 새로 조건을 채운 배지를 기록한다
+export async function getRewardsStatus(childId: string): Promise<RewardsStatus | null> {
+  const { data, error } = await supabase.rpc("get_rewards_status", { p_child: childId });
+  if (error || !data) return null;
+  return data as RewardsStatus;
+}
+
+export async function markBadgesSeen(childId: string): Promise<void> {
+  await supabase.rpc("mark_badges_seen", { p_child: childId });
+}
+
+export async function createPromise(childId: string, reward: string, target: number): Promise<boolean> {
+  const { error } = await supabase.from("child_promises").insert({ child_id: childId, reward: reward.trim(), target });
+  return !error;
+}
+
+export async function updatePromise(
+  promiseId: string,
+  fields: Partial<{ reward: string; target: number; fulfilled_at: string; canceled_at: string }>
+): Promise<boolean> {
+  const { error } = await supabase.from("child_promises").update(fields).eq("id", promiseId);
+  return !error;
+}
+
 export async function getTodayStats(studentId: string): Promise<TodayStats> {
   // 오늘 = 기기 현지 시간 0시 ~ 내일 0시
   const todayStart = localMidnight(0).toISOString();
