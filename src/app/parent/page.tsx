@@ -57,7 +57,10 @@ import {
   lookupMeanings,
   getGoalStatus,
   GoalStatus,
+  getRewardsStatus,
+  RewardsStatus,
 } from "@/lib/api";
+import { BadgeSummary, PromiseEditor } from "@/components/Rewards";
 import { StampCalendar, goalSummaryText } from "@/components/DailyGoal";
 import { InstallAppCard, InstallAppSection } from "@/components/InstallAppGuide";
 import { normalizeEnglish } from "@/lib/meaning";
@@ -121,6 +124,8 @@ export default function ParentPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   // 자녀별 오늘의 목표·연속 학습·이번 주 요약
   const [goals, setGoals] = useState<Record<string, GoalStatus | null>>({});
+  // 자녀별 배지·보상 약속
+  const [rewards, setRewards] = useState<Record<string, RewardsStatus | null>>({});
   // 뜻 자동 채우기
   const [lookingUp, setLookingUp] = useState<number[]>([]); // 뜻을 찾는 중인 줄
   const [meaningBusy, setMeaningBusy] = useState(false);
@@ -158,10 +163,17 @@ export default function ParentPage() {
     Promise.all(children.map(async (c) => [c.id, await getGoalStatus(c.id)] as const)).then((entries) => {
       if (!cancelled) setGoals(Object.fromEntries(entries));
     });
+    loadRewards();
     return () => {
       cancelled = true;
     };
   }, [gateChecked, children]);
+
+  // 배지·약속 다시 읽기 (약속을 정하거나 바꾼 뒤에도)
+  async function loadRewards() {
+    const entries = await Promise.all(children.map(async (c) => [c.id, await getRewardsStatus(c.id)] as const));
+    setRewards(Object.fromEntries(entries));
+  }
 
   // 단어 등록 탭: 단어장 주제 목록 (쉬운 주제부터)
   useEffect(() => {
@@ -553,6 +565,11 @@ export default function ParentPage() {
                         </span>
                       </>
                     )}
+                    {rewards[c.id]?.promise && (
+                      <span className="text-pink-600">
+                        🎁 약속 {Math.min(rewards[c.id]!.promise!.progress, rewards[c.id]!.promise!.target)}/{rewards[c.id]!.promise!.target}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -799,6 +816,15 @@ export default function ParentPage() {
                           </button>
                         )}
                       </div>
+                    )}
+                    {rewards[c.id] !== undefined && (
+                      <PromiseEditor
+                        key={rewards[c.id]?.promise?.id ?? "none"}
+                        childId={c.id}
+                        childName={c.name}
+                        promise={rewards[c.id]?.promise ?? null}
+                        onChanged={loadRewards}
+                      />
                     )}
                     </div>
                   ))}
@@ -1100,6 +1126,7 @@ export default function ParentPage() {
             {selectedChildId && goals[selectedChildId] && (
               <WeekGoalCard status={goals[selectedChildId]!} />
             )}
+            {selectedChildId && rewards[selectedChildId] && <BadgeSummary status={rewards[selectedChildId]!} />}
             {progress && <WordProgressCard progress={progress} />}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-2xl p-5 shadow-md text-center">
