@@ -45,6 +45,7 @@ import {
 } from "@/lib/api";
 import { DailyGoalCard, GoalCelebration } from "@/components/DailyGoal";
 import { GrowthCard, PromiseCard, RewardCelebration } from "@/components/Rewards";
+import { AlphabetEntryCard } from "@/components/AlphabetKit";
 import { newBadges } from "@/lib/badges";
 import { getTodayString, formatDateShort } from "@/lib/utils";
 import { useActiveChild } from "@/lib/child-mode";
@@ -315,7 +316,10 @@ export default function StudentPage() {
             <br />
             &quot;오늘의 학습&quot;을 켜 달라고 부탁해요!
           </p>
-          <button onClick={goProfiles} className="btn-primary inline-block">프로필 바꾸기</button>
+          <div className="flex flex-col items-center gap-3">
+            <Link href="/student/alphabet" className="btn-kid bg-kid-yellow inline-block">🔤 알파벳 익히기</Link>
+            <button onClick={goProfiles} className="btn-primary inline-block">프로필 바꾸기</button>
+          </div>
         </div>
       </div>
     );
@@ -329,6 +333,9 @@ export default function StudentPage() {
   const pastSets = sets.filter((s) => !todayIds.has(s.id));
   const showPlacement = !!childInfo && childInfo.auto_lesson && !childInfo.placement_done_at && !placementLater;
   const lessonNew = todayLesson?.words?.filter((w) => w.lesson_role === "new").length ?? 0;
+  // 알파벳: "영어 처음" 아이는 26자를 다 익힐 때까지 위쪽에 크게
+  const alphabetMastered = rewards?.metrics.alphabet_mastered ?? 0;
+  const alphabetFirst = childInfo?.grade === 0 && alphabetMastered < 26;
   const lessonReview = todayLesson?.words?.filter((w) => w.lesson_role === "review").length ?? 0;
 
   const totalSessions = todayStats?.totalSessions ?? 0;
@@ -363,6 +370,8 @@ export default function StudentPage() {
 
         {/* 오늘의 목표 · 연속 학습 · 도장판 */}
         {goal && <DailyGoalCard status={goal} />}
+
+        {alphabetFirst && <AlphabetEntryCard mastered={alphabetMastered} highlight />}
 
         {/* 부모님과의 약속 · 내 성장(외운 단어·배지) */}
         {rewards?.promise && <PromiseCard promise={rewards.promise} />}
@@ -590,6 +599,13 @@ export default function StudentPage() {
 
         {/* 오늘의 시험 - 모든 모듈 완료 시 활성화 */}
         <ExamCard wordSetId={wordSet.id} moduleStats={todayStats?.moduleStats ?? {}} />
+
+        {/* 알파벳 익히기 (영어 처음 아이는 위쪽에 크게 보여 줌) */}
+        {!alphabetFirst && (
+          <div className="mt-8">
+            <AlphabetEntryCard mastered={alphabetMastered} highlight={false} />
+          </div>
+        )}
       </div>
 
       {celebrate && goal && (

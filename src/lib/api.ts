@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { Word, WordSet, LearningRecord, Reward, ModuleType, Profile, Child, DictionaryWord } from "./types";
 import { localMidnight, toLocalDateString } from "./utils";
 import { MAX_LOOKUP_WORDS, isLookupableEnglish, normalizeEnglish } from "./meaning";
+import type { LetterProgress } from "./alphabet";
 
 // ============ 전체 행 조회 (페이지 나눠 읽기) ============
 // Supabase(PostgREST)는 한 번에 최대 1000행(프로젝트 기본 max rows)만 돌려준다.
@@ -652,6 +653,24 @@ export async function getGoalStatus(childId: string): Promise<GoalStatus | null>
   const { data, error } = await supabase.rpc("get_goal_status", { p_child: childId });
   if (error || !data) return null;
   return data as GoalStatus;
+}
+
+// ============ 알파벳 익히기 ============
+
+// 글자별 학습 상태 (기록이 없는 글자는 빠짐)
+export async function getAlphabetProgress(childId: string): Promise<Record<string, LetterProgress>> {
+  const { data } = await supabase
+    .from("child_alphabet_progress")
+    .select("letter, streak, correct_count, mastered_at")
+    .eq("child_id", childId);
+  return Object.fromEntries(
+    (data ?? []).map((r) => [r.letter, { streak: r.streak, correct: r.correct_count, mastered: !!r.mastered_at }])
+  );
+}
+
+// 한 문제 결과 (3번 연속 맞히면 익힌 글자)
+export async function recordAlphabetResult(childId: string, letter: string, correct: boolean): Promise<void> {
+  await supabase.rpc("record_alphabet_result", { p_child: childId, p_letter: letter, p_correct: correct });
 }
 
 // ============ 배지·보상 약속 (DB가 조건 확인·기록) ============

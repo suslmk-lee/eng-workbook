@@ -22,6 +22,7 @@ export const BADGE_INFO: Record<string, { emoji: string; name: string }> = {
   perfect_50: { emoji: "👏", name: "만점 50번" },
   placement: { emoji: "🧭", name: "레벨 테스트" },
   sentence_50: { emoji: "💬", name: "문장 50개" },
+  alphabet_26: { emoji: "🔤", name: "알파벳 26자" },
 };
 
 export function badgeInfo(key: string) {
@@ -46,6 +47,8 @@ export function badgeHow(b: Pick<BadgeState, "metric" | "threshold">): string {
       return "레벨 테스트를 보면 받아요";
     case "sentence_correct":
       return `문장 문제를 ${n}개 맞히면 받아요`;
+    case "alphabet_mastered":
+      return `알파벳 ${n}자를 모두 익히면 받아요`;
     default:
       return "";
   }
