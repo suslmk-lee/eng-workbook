@@ -24,7 +24,9 @@ interface Question {
 
 function buildQuestions(dict: DictionaryWord[]): Question[] {
   const questions: Question[] = [];
-  for (let level = 1; level <= 5; level++) {
+  // 사전에 있는 레벨 순서대로 (1~7)
+  const levels = Array.from(new Set(dict.map((w) => w.level))).sort((a, b) => a - b);
+  for (const level of levels) {
     const pool = dict.filter((w) => w.level === level);
     for (const word of shuffleArray(pool).slice(0, PER_LEVEL)) {
       const distractors = shuffleArray(pool.filter((w) => w.korean !== word.korean))
@@ -127,7 +129,7 @@ export default function PlacementPage() {
             <p className="text-gray-600 mb-6">
               모르면 <b>모르겠어요</b>를 눌러요. 틀려도 괜찮아요!
               <br />
-              <span className="text-sm text-gray-400">3분 정도 걸려요</span>
+              <span className="text-sm text-gray-400">3~5분 정도 걸려요</span>
             </p>
             <button onClick={() => setPhase("quiz")} className="btn-kid bg-kid-blue w-full mb-3">
               시작하기

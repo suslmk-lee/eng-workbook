@@ -32,6 +32,8 @@ export const LEVEL_LABELS: Record<number, string> = {
   3: "레벨 3 (초4)",
   4: "레벨 4 (초5)",
   5: "레벨 5 (초6)",
+  6: "레벨 6 (중1)",
+  7: "레벨 7 (중2)",
 };
 
 export interface DictionaryWord {
@@ -50,6 +52,7 @@ export const THEME_EMOJI: Record<string, string> = {
   시간: "⏰", 장소: "🗺️", 생활: "🧹", 상태: "😴", 옷: "👕",
   직업: "👩‍⚕️", 교통: "🚌", "취미·운동": "⚽", 감정: "😊", "생각·배움": "💡", "성격·상태": "🙂", "말·글": "✉️",
   "자연·환경": "🌍", 건강: "💪", 행동: "✋", "느낌·평가": "⭐", "생각·문화": "🎎", 여행: "✈️",
+  "사회·세계": "🏛️", "과학·기술": "🔬", 의사소통: "💬", "경제·일": "💼",
 };
 
 export const GRADE_OPTIONS: { value: number; label: string }[] = [
