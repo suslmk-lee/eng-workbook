@@ -59,6 +59,7 @@ import {
   GoalStatus,
 } from "@/lib/api";
 import { StampCalendar, goalSummaryText } from "@/components/DailyGoal";
+import { InstallAppCard, InstallAppSection } from "@/components/InstallAppGuide";
 import { normalizeEnglish } from "@/lib/meaning";
 import { formatDate, getTodayString, getAccuracyColor, parseLocalDate } from "@/lib/utils";
 import { useAuth, isLegacyStudent } from "@/lib/auth-context";
@@ -526,6 +527,9 @@ export default function ParentPage() {
             </button>
           </div>
         </div>
+
+        {/* 홈 화면 앱 설치 안내 (설치할 수 있는 기기에서만) */}
+        <InstallAppCard />
 
         {/* 오늘 한눈에: 자녀별 오늘의 목표·연속 학습·이번 주 */}
         {children.length > 0 && Object.keys(goals).length > 0 && (
@@ -1186,6 +1190,8 @@ export default function ParentPage() {
                 </dd>
               </dl>
             </div>
+
+            <InstallAppSection />
 
             <form onSubmit={handleChangePassword} className="bg-white rounded-3xl p-6 shadow-md space-y-3">
               <h2 className="text-xl font-bold text-gray-800">비밀번호 바꾸기</h2>

@@ -3,6 +3,24 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation; /* 빠르게 두 번 눌러도 확대되지 않게 (두 손가락 확대는 그대로) */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 아이패드 같은 태블릿(터치 화면, 폭 768px 이상): 글자·버튼·간격을 12.5% 크게.
+     크기가 모두 rem 단위라 이 한 줄로 전체가 커진다. 마우스를 쓰는 PC는 그대로 */
+  @media (min-width: 768px) and (pointer: coarse) {
+    html {
+      font-size: 112.5%;
+    }
+  }
+  /* 버튼을 길게 눌러도 글자 선택·메뉴가 뜨지 않게 (아이가 오래 누르는 경우) */
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
   body {
     @apply bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 min-h-screen;
   }
